@@ -2,8 +2,8 @@ import akshare as ak
 
 
 def main():
-    df = ak.stock_zh_a_spot_em()
-    print(df.head(5).to_string())
+    stock_sse_summary_df = ak.stock_sse_summary()
+    print(stock_sse_summary_df)
 
 
 if __name__ == '__main__':
