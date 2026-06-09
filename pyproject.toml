@@ -1,0 +1,25 @@
+[tool.ruff]
+# 显式锁死目标 Python 版本，让 Ruff 采用 3.10 的现代语法审计
+target-version = "py310"
+# 量化数据工程经常有很长的 DataFrame 链式调用，放宽到 100 字符防止强制换行导致的可读性灾难
+line-length = 100
+
+[tool.ruff.format]
+# 完美保留你的主张：统一单引号，使用空格缩进
+quote-style = "single"
+indent-style = "space"
+
+[tool.ruff.lint]
+# 【核心增强】：不要只选 "I"，强烈建议把 "E" (语法错误) 和 "F" (逻辑死角) 一起拉入防线
+# E/W: Pycodestyle 基础语法错误
+# F: Pyflakes 致命逻辑错误（如：引用了未定义的变量、写了死代码）
+# I: Isort 自动导包排序（你的核心刚需）
+select = ["E", "W", "F", "I"]
+ignore = []
+
+[tool.ruff.lint.isort]
+# 开启混合导入自动拆分。未来你的 import 会自动排成丝滑的三段式：
+# 1. Python 内置标准库 (json, asyncio)
+# 2. 第三方重工业库 (numpy, pyarrow, akshare)
+# 3. 你自己写的本地模块 (schema, config)
+combine-as-imports = true

@@ -1,0 +1,78 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Conda
+.conda/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Testing / type checking / coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+logs/
+
+# Local config / secrets
+.env.*
+!.env.example
+secrets/
+*.local
+
+# Pipeline data & artifacts (keep structure, ignore contents)
+data/
+cache/
+output/
+artifacts/
+models/
+checkpoints/
+*.parquet
+*.feather
+*.arrow
+*.csv
+*.xlsx
+*.xls
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+
+# Temporary files
+tmp/
+temp/
+*.tmp
