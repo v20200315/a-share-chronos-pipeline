@@ -1,9 +1,10 @@
-import asyncio
+import akshare as ak
 
 
-async def main():
-    print('hello world')
+def main():
+    df = ak.stock_zh_a_spot_em()
+    print(df.head(5).to_string())
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
