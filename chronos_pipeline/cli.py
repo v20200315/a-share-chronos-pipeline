@@ -1,8 +1,8 @@
 import argparse
 import sys
 
-from ashare.metadata.manager import MetadataManager
-from ashare.metadata.validator import MetadataValidationError
+from chronos_pipeline.metadata.manager import MetadataManager
+from chronos_pipeline.metadata.validator import MetadataValidationError
 
 
 def main():

@@ -129,10 +129,14 @@ class MetadataValidator:
             )
 
         if not df['code'].notna().all():
-            report.errors.append(ValidationIssue(level='error', message='code contains null values'))
+            report.errors.append(
+                ValidationIssue(level='error', message='code contains null values')
+            )
 
         if not df['name'].notna().all():
-            report.errors.append(ValidationIssue(level='error', message='name contains null values'))
+            report.errors.append(
+                ValidationIssue(level='error', message='name contains null values')
+            )
 
         if not df['code'].astype(str).str.match(r'^\d{6}$').all():
             report.errors.append(
@@ -182,8 +186,7 @@ class MetadataValidator:
                     ValidationIssue(
                         level='error',
                         message=(
-                            'LISTED rows missing list_date: '
-                            f'{listed_date_coverage:.2%} coverage'
+                            f'LISTED rows missing list_date: {listed_date_coverage:.2%} coverage'
                         ),
                     )
                 )
@@ -214,9 +217,7 @@ class MetadataValidator:
 
         shared_codes = sorted(set(old.index) & set(new.index))
         name_changed_codes = [
-            code
-            for code in shared_codes
-            if str(old.at[code, 'name']) != str(new.at[code, 'name'])
+            code for code in shared_codes if str(old.at[code, 'name']) != str(new.at[code, 'name'])
         ]
 
         old_dates = pd.to_datetime(old['list_date'], errors='coerce')

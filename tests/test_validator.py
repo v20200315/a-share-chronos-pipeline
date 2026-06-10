@@ -1,6 +1,5 @@
 import pandas as pd
 import pytest
-
 from ashare.metadata.exchange import infer_exchange
 from ashare.metadata.validator import CrossCheckRefs, MetadataValidationError, MetadataValidator
 
