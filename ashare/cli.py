@@ -1,21 +1,28 @@
 import argparse
+import sys
 
-from ashare.metadata.validator import MetadataValidator
 from ashare.metadata.manager import MetadataManager
+from ashare.metadata.validator import MetadataValidationError
 
 
 def main():
-
     parser = argparse.ArgumentParser()
-    parser.add_argument('command')
+    parser.add_argument('command', choices=['refresh', 'load'])
+    parser.add_argument(
+        '--strict',
+        action='store_true',
+        help='treat validation warnings as errors',
+    )
 
     args = parser.parse_args()
-
     manager = MetadataManager()
 
     if args.command == 'refresh':
-        df = manager.refresh()
-        MetadataValidator.validate_stock_basic(df)
+        try:
+            manager.refresh(strict=args.strict)
+        except MetadataValidationError as exc:
+            print(f'[FAIL] {exc}', file=sys.stderr)
+            sys.exit(1)
 
     elif args.command == 'load':
         df = manager.load()

@@ -9,6 +9,7 @@ dependencies:
   - pyarrow
   - ruff
   - httpx
+  - pytest
   
   - pip
   - pip:

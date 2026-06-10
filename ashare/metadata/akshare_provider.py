@@ -1,15 +1,24 @@
 import akshare as ak
 import pandas as pd
 
+from .exchange import infer_exchange
 from .provider import MetadataProvider
+from .validator import CrossCheckRefs
 
 
 class AkshareMetadataProvider(MetadataProvider):
+    def __init__(self):
+        self._last_cross_check: CrossCheckRefs | None = None
+
+    @property
+    def last_cross_check(self) -> CrossCheckRefs | None:
+        return self._last_cross_check
+
     def fetch_stock_basic(self) -> pd.DataFrame:
 
         # 全量A股（5526）
         all_df = ak.stock_info_a_code_name()[['code', 'name']]
-        all_df['exchange'] = 'A'
+        universe_codes = set(all_df['code'].astype(str))
 
         # 沪市
         sh = ak.stock_info_sh_name_code()
@@ -27,6 +36,11 @@ class AkshareMetadataProvider(MetadataProvider):
         bj['exchange'] = 'BJ'
 
         listed = pd.concat([sh, sz, bj], ignore_index=True)
+        listed_codes = set(listed['code'].astype(str))
+        self._last_cross_check = CrossCheckRefs(
+            universe_codes=universe_codes,
+            listed_codes=listed_codes,
+        )
 
         df = all_df.merge(listed[['code', 'list_date']], on='code', how='left')
 
@@ -35,5 +49,6 @@ class AkshareMetadataProvider(MetadataProvider):
 
         df['status'] = parsed_dates.notna().map({True: 'LISTED', False: 'UNKNOWN'})
         df['delist_date'] = pd.Series(pd.NA, index=df.index, dtype='string')
+        df['exchange'] = df['code'].astype(str).map(infer_exchange)
 
         return df
