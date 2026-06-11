@@ -1,7 +1,12 @@
 import pandas as pd
 import pytest
-from ashare.metadata.exchange import infer_exchange
-from ashare.metadata.validator import CrossCheckRefs, MetadataValidationError, MetadataValidator
+
+from chronos_pipeline.metadata.exchange import infer_exchange
+from chronos_pipeline.metadata.validator import (
+    CrossCheckRefs,
+    MetadataValidationError,
+    MetadataValidator,
+)
 
 
 def _sample_df(**overrides) -> pd.DataFrame:
@@ -10,25 +15,19 @@ def _sample_df(**overrides) -> pd.DataFrame:
             'code': '600519',
             'name': '贵州茅台',
             'exchange': 'SH',
-            'status': 'LISTED',
             'list_date': '2001-08-27',
-            'delist_date': pd.NA,
         },
         {
             'code': '000001',
             'name': '平安银行',
             'exchange': 'SZ',
-            'status': 'LISTED',
             'list_date': '1991-04-03',
-            'delist_date': pd.NA,
         },
         {
             'code': '920001',
             'name': '示例北交所',
             'exchange': 'BJ',
-            'status': 'LISTED',
             'list_date': '2024-01-01',
-            'delist_date': pd.NA,
         },
     ]
     df = pd.DataFrame(rows)
@@ -103,7 +102,6 @@ def test_strict_promotes_warnings_to_errors(monkeypatch):
     monkeypatch.setattr(MetadataValidator, 'MAX_UNKNOWN_RATIO', 0.0)
 
     df = _sample_df()
-    df.loc[df['code'] == '920001', 'status'] = 'UNKNOWN'
     df.loc[df['code'] == '920001', 'list_date'] = pd.NA
 
     report = MetadataValidator.validate_stock_basic(df, strict=True)
@@ -113,12 +111,13 @@ def test_strict_promotes_warnings_to_errors(monkeypatch):
 
 
 def test_manager_refresh_fail_closed(tmp_path, monkeypatch):
-    from ashare.metadata.manager import MetadataManager
+    from chronos_pipeline.metadata.manager import MetadataManager
 
     monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
     monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
 
     data_dir = tmp_path / 'metadata'
+    data_dir.mkdir()
     parquet_path = data_dir / 'stock_basic.parquet'
     previous_df = _sample_df()
     previous_df.to_parquet(parquet_path, index=False)

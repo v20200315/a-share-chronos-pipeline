@@ -1,4 +1,4 @@
-from ashare.metadata.manager import MetadataManager
+from chronos_pipeline.metadata.manager import MetadataManager
 
 
 def test_refresh():

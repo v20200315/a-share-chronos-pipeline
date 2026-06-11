@@ -75,7 +75,6 @@ class MetadataValidator:
     MAX_REMOVED_RATIO = 0.01
     MAX_ADDED_RATIO = 0.01
     MAX_UNKNOWN_RATIO = 0.05
-    MIN_LISTED_DATE_COVERAGE = 0.95
     MAX_NAME_CHANGE_COUNT = 100
     MAX_CROSS_CHECK_ONLY_IN_LISTED = 0
 
@@ -106,7 +105,7 @@ class MetadataValidator:
 
     @classmethod
     def _validate_structure(cls, df: pd.DataFrame, report: ValidationReport) -> None:
-        required_columns = {'code', 'name', 'exchange', 'status', 'list_date', 'delist_date'}
+        required_columns = {'code', 'name', 'exchange', 'list_date'}
         missing_columns = required_columns - set(df.columns)
         if missing_columns:
             report.errors.append(
@@ -148,11 +147,6 @@ class MetadataValidator:
                 ValidationIssue(level='error', message='exchange contains invalid values')
             )
 
-        if not df['status'].isin(['LISTED', 'UNKNOWN', 'DELISTED']).all():
-            report.errors.append(
-                ValidationIssue(level='error', message='status contains invalid values')
-            )
-
         unknown_exchange_count = (df['exchange'] == 'UNKNOWN').sum()
         if unknown_exchange_count:
             report.warnings.append(
@@ -178,25 +172,12 @@ class MetadataValidator:
                 ValidationIssue(level='error', message='list_date contains future dates')
             )
 
-        listed_mask = df['status'] == 'LISTED'
-        if listed_mask.any():
-            listed_date_coverage = parsed_dates[listed_mask].notna().mean()
-            if listed_date_coverage < cls.MIN_LISTED_DATE_COVERAGE:
-                report.errors.append(
-                    ValidationIssue(
-                        level='error',
-                        message=(
-                            f'LISTED rows missing list_date: {listed_date_coverage:.2%} coverage'
-                        ),
-                    )
-                )
-
-        unknown_ratio = (df['status'] == 'UNKNOWN').mean()
-        if unknown_ratio > cls.MAX_UNKNOWN_RATIO:
+        missing_list_date_ratio = parsed_dates.isna().mean()
+        if missing_list_date_ratio > cls.MAX_UNKNOWN_RATIO:
             report.warnings.append(
                 ValidationIssue(
                     level='warning',
-                    message=f'UNKNOWN status ratio too high: {unknown_ratio:.2%}',
+                    message=f'missing list_date ratio too high: {missing_list_date_ratio:.2%}',
                 )
             )
 

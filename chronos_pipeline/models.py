@@ -8,6 +8,3 @@ class StockBasic:
     exchange: str
 
     list_date: str | None = None
-    delist_date: str | None = None
-
-    status: str = 'LISTED'

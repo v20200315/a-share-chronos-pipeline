@@ -47,8 +47,6 @@ class AkshareMetadataProvider(MetadataProvider):
         parsed_dates = pd.to_datetime(df['list_date'], errors='coerce')
         df['list_date'] = parsed_dates.dt.strftime('%Y-%m-%d').astype('string')
 
-        df['status'] = parsed_dates.notna().map({True: 'LISTED', False: 'UNKNOWN'})
-        df['delist_date'] = pd.Series(pd.NA, index=df.index, dtype='string')
         df['exchange'] = df['code'].astype(str).map(infer_exchange)
 
         return df
