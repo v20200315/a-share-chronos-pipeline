@@ -7,6 +7,8 @@ from .validator import CrossCheckRefs
 
 
 class AkshareMetadataProvider(MetadataProvider):
+    provider_name = 'akshare'
+
     def __init__(self):
         self._last_cross_check: CrossCheckRefs | None = None
 

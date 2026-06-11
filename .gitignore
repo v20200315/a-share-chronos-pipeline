@@ -55,12 +55,18 @@ secrets/
 *.local
 
 # Pipeline data & artifacts (keep structure, ignore contents)
-data/
-cache/
-output/
-artifacts/
-models/
-checkpoints/
+data/**
+cache/**
+output/**
+artifacts/**
+models/**
+checkpoints/**
+!data/**/.gitkeep
+!cache/**/.gitkeep
+!output/**/.gitkeep
+!artifacts/**/.gitkeep
+!models/**/.gitkeep
+!checkpoints/**/.gitkeep
 *.parquet
 *.feather
 *.arrow

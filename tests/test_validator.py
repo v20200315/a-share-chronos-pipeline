@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from chronos_pipeline.metadata.eastmoney_provider import EastMoneyMetadataProvider
 from chronos_pipeline.metadata.exchange import infer_exchange
 from chronos_pipeline.metadata.validator import (
     CrossCheckRefs,
@@ -42,6 +43,74 @@ def test_infer_exchange():
     assert infer_exchange('000001') == 'SZ'
     assert infer_exchange('300750') == 'SZ'
     assert infer_exchange('920001') == 'BJ'
+
+
+def test_eastmoney_parses_jsonp_response():
+    payload = (
+        'jQuery37106414938370754382_1781081311474({'
+        '"rc":0,"data":{"total":1,"diff":[{"f12":"603103","f14":"横店影视","f26":20171012}]}'
+        '});'
+    )
+
+    parsed = EastMoneyMetadataProvider._parse_jsonp(payload)
+
+    assert parsed['data']['total'] == 1
+    assert parsed['data']['diff'][0]['f12'] == '603103'
+
+
+def test_eastmoney_normalizes_rows_to_stock_basic_schema():
+    df = EastMoneyMetadataProvider._normalize_rows(
+        [
+            {'f12': '603103', 'f14': '横店影视', 'f26': 20171012},
+            {'f12': '002181', 'f14': '粤 传 媒', 'f26': 20071116},
+        ]
+    )
+
+    assert list(df.columns) == ['code', 'name', 'exchange', 'list_date']
+    assert df.loc[0].to_dict() == {
+        'code': '603103',
+        'name': '横店影视',
+        'exchange': 'SH',
+        'list_date': '2017-10-12',
+    }
+    assert df.loc[1].to_dict() == {
+        'code': '002181',
+        'name': '粤 传 媒',
+        'exchange': 'SZ',
+        'list_date': '2007-11-16',
+    }
+
+
+def test_eastmoney_uses_page_size_100_and_56_pages_for_5527_records():
+    provider = EastMoneyMetadataProvider()
+    params = provider._build_params(page=56)
+
+    assert provider.page_size == 100
+    assert provider.expected_total == 5527
+    assert params['pz'] == 100
+    assert params['pn'] == 56
+    assert EastMoneyMetadataProvider._page_count(total=5527, page_size=100) == 56
+
+
+def test_eastmoney_fetch_all_rows_uses_expected_total_for_page_count(monkeypatch):
+    requested_pages = []
+
+    def fake_fetch_page(self, client, page):
+        requested_pages.append(page)
+        return {
+            'data': {
+                'total': 731,
+                'diff': [{'f12': f'{page:06d}', 'f14': f'name-{page}', 'f26': 20200101}],
+            }
+        }
+
+    monkeypatch.setattr(EastMoneyMetadataProvider, '_fetch_page', fake_fetch_page)
+
+    provider = EastMoneyMetadataProvider(page_size=100, expected_total=250)
+    rows = provider._fetch_all_rows()
+
+    assert requested_pages == [1, 2, 3]
+    assert len(rows) == 3
 
 
 def test_validate_structure_passes_with_relaxed_bounds(monkeypatch):
@@ -118,7 +187,7 @@ def test_manager_refresh_fail_closed(tmp_path, monkeypatch):
 
     data_dir = tmp_path / 'metadata'
     data_dir.mkdir()
-    parquet_path = data_dir / 'stock_basic.parquet'
+    parquet_path = data_dir / 'stock_basic_akshare.parquet'
     previous_df = _sample_df()
     previous_df.to_parquet(parquet_path, index=False)
 

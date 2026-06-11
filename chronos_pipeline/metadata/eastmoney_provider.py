@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import asdict
+from math import ceil
+from typing import Any
+
+import httpx
+import pandas as pd
+
+from chronos_pipeline.models import StockBasic
+
+from .exchange import infer_exchange
+from .provider import MetadataProvider
+from .validator import CrossCheckRefs
+
+
+class EastMoneyMetadataProvider(MetadataProvider):
+    provider_name = 'eastmoney'
+
+    EXPECTED_TOTAL = 5527
+    BASE_URL = 'https://push2.eastmoney.com/webguest/api/qt/clist/get'
+    DEFAULT_FIELDS = 'f3,f12,f14,f26'
+    DEFAULT_FILTER = 'm:0+t:6+f:!2,m:0+t:80+f:!2,m:1+t:2+f:!2,m:1+t:23+f:!2,m:0+t:81+s:262144+f:!2'
+
+    def __init__(
+        self,
+        *,
+        page_size: int = 100,
+        expected_total: int = EXPECTED_TOTAL,
+        timeout: float = 15.0,
+        print_request_urls: bool = True,
+        request_interval_seconds: float = 0.5,
+    ):
+        self.page_size = page_size
+        self.expected_total = expected_total
+        self.timeout = timeout
+        self.print_request_urls = print_request_urls
+        self.request_interval_seconds = request_interval_seconds
+        self.request_urls: list[str] = []
+        self._last_cross_check: CrossCheckRefs | None = None
+
+    @property
+    def last_cross_check(self) -> CrossCheckRefs | None:
+        return self._last_cross_check
+
+    def fetch_stock_basic(self) -> pd.DataFrame:
+        rows = self._fetch_all_rows()
+        df = self._normalize_rows(rows)
+        codes = set(df['code'].astype(str))
+        self._last_cross_check = CrossCheckRefs(universe_codes=codes, listed_codes=codes)
+        return df
+
+    def _fetch_all_rows(self) -> list[dict[str, Any]]:
+        self.request_urls = []
+        with httpx.Client(timeout=self.timeout) as client:
+            page_count = self._page_count(self.expected_total, self.page_size)
+
+            first_page = self._fetch_page(client, 1)
+            data = first_page.get('data') or {}
+            rows = data.get('diff') or []
+            print(
+                f'[INFO] EastMoney page=1 rows={len(rows)} cumulative={len(rows)} '
+                f'url={self._last_request_url()}',
+                flush=True,
+            )
+
+            for page in range(2, page_count + 1):
+                page_data = self._fetch_page(client, page).get('data') or {}
+                page_rows = page_data.get('diff') or []
+                rows.extend(page_rows)
+
+        print(f'[INFO] EastMoney requests sent: {len(self.request_urls)}', flush=True)
+        return rows
+
+    def _fetch_page(self, client: httpx.Client, page: int) -> dict[str, Any]:
+        request = client.build_request('GET', self.BASE_URL, params=self._build_params(page))
+        self.request_urls.append(str(request.url))
+        if self.print_request_urls:
+            print(f'[REQUEST] page={page} url={request.url}', flush=True)
+
+        response = client.send(request)
+        response.raise_for_status()
+        time.sleep(self.request_interval_seconds)
+        return self._parse_jsonp(response.text)
+
+    @staticmethod
+    def _page_count(total: int, page_size: int) -> int:
+        return max(1, ceil(total / page_size))
+
+    def _last_request_url(self) -> str:
+        if not self.request_urls:
+            return 'N/A'
+        return self.request_urls[-1]
+
+    def _build_params(self, page: int) -> dict[str, str | int]:
+        timestamp = int(time.time() * 1000)
+        callback = f'jQuery37106414938370754382_{timestamp}'
+        return {
+            'np': '1',
+            'fltt': '1',
+            'invt': '2',
+            'cb': callback,
+            'fs': self.DEFAULT_FILTER,
+            'fields': self.DEFAULT_FIELDS,
+            'fid': 'f3',
+            'pn': page,
+            'pz': self.page_size,
+            'po': '1',
+            'dect': '1',
+            'ut': 'fa5fd1943c7b386f172d6893dbfba10b',
+            'wbp2u': '|0|0|0|web',
+            '_': timestamp + 95,
+        }
+
+    @staticmethod
+    def _parse_jsonp(text: str) -> dict[str, Any]:
+        stripped = text.strip()
+        start = stripped.find('(')
+        end = stripped.rfind(')')
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError('EastMoney response is not valid JSONP')
+
+        return json.loads(stripped[start + 1 : end])
+
+    @classmethod
+    def _normalize_rows(cls, rows: list[dict[str, Any]]) -> pd.DataFrame:
+        records = [asdict(cls._row_to_stock_basic(row)) for row in rows]
+        return pd.DataFrame.from_records(
+            records,
+            columns=['code', 'name', 'exchange', 'list_date'],
+        )
+
+    @staticmethod
+    def _row_to_stock_basic(row: dict[str, Any]) -> StockBasic:
+        code = str(row.get('f12') or '').zfill(6)
+        return StockBasic(
+            code=code,
+            name=str(row.get('f14') or '').strip(),
+            exchange=infer_exchange(code),
+            list_date=EastMoneyMetadataProvider._normalize_list_date(row.get('f26')),
+        )
+
+    @staticmethod
+    def _normalize_list_date(value: Any) -> str | None:
+        if value in (None, '', '-', 0, '0'):
+            return None
+
+        parsed = pd.to_datetime(str(value), format='%Y%m%d', errors='coerce')
+        if pd.isna(parsed):
+            parsed = pd.to_datetime(value, errors='coerce')
+        if pd.isna(parsed):
+            return None
+
+        return parsed.strftime('%Y-%m-%d')
