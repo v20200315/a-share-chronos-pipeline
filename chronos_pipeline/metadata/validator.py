@@ -70,6 +70,9 @@ class MetadataValidationError(Exception):
 
 
 class MetadataValidator:
+    REQUIRED_COLUMNS = {'code', 'name', 'exchange', 'list_date'}
+    DIFF_COLUMNS = {'code', 'name', 'list_date'}
+
     MIN_ROWS = 4000
     MAX_ROWS = 6500
     MAX_REMOVED_RATIO = 0.01
@@ -90,9 +93,15 @@ class MetadataValidator:
         report = ValidationReport(row_count=len(df))
 
         cls._validate_structure(df, report)
-        if previous_df is not None and not previous_df.empty:
+
+        if (
+            previous_df is not None
+            and not previous_df.empty
+            and cls._can_validate_diff(df, previous_df, report)
+        ):
             report.diff = cls._validate_diff(df, previous_df, report, strict=strict)
-        if cross_check is not None:
+
+        if cross_check is not None and cls._can_validate_cross_check(df, report):
             cls._validate_cross_check(df, cross_check, report, strict=strict)
 
         if strict and report.warnings:
@@ -105,8 +114,7 @@ class MetadataValidator:
 
     @classmethod
     def _validate_structure(cls, df: pd.DataFrame, report: ValidationReport) -> None:
-        required_columns = {'code', 'name', 'exchange', 'list_date'}
-        missing_columns = required_columns - set(df.columns)
+        missing_columns = cls.REQUIRED_COLUMNS - set(df.columns)
         if missing_columns:
             report.errors.append(
                 ValidationIssue(
@@ -180,6 +188,69 @@ class MetadataValidator:
                     message=f'missing list_date ratio too high: {missing_list_date_ratio:.2%}',
                 )
             )
+
+    @classmethod
+    def _can_validate_diff(
+        cls,
+        df: pd.DataFrame,
+        previous_df: pd.DataFrame,
+        report: ValidationReport,
+    ) -> bool:
+        current_missing = cls.DIFF_COLUMNS - set(df.columns)
+        previous_missing = cls.DIFF_COLUMNS - set(previous_df.columns)
+        if current_missing or previous_missing:
+            report.warnings.append(
+                ValidationIssue(
+                    level='warning',
+                    message=(
+                        'skip snapshot diff because required columns are missing: '
+                        f'current={sorted(current_missing)}, previous={sorted(previous_missing)}'
+                    ),
+                )
+            )
+            return False
+
+        if not df['code'].notna().all() or not previous_df['code'].notna().all():
+            report.warnings.append(
+                ValidationIssue(
+                    level='warning',
+                    message='skip snapshot diff because code contains null values',
+                )
+            )
+            return False
+
+        if not df['code'].is_unique or not previous_df['code'].is_unique:
+            report.warnings.append(
+                ValidationIssue(
+                    level='warning',
+                    message='skip snapshot diff because code is not unique',
+                )
+            )
+            return False
+
+        return True
+
+    @classmethod
+    def _can_validate_cross_check(cls, df: pd.DataFrame, report: ValidationReport) -> bool:
+        if 'code' not in df.columns:
+            report.warnings.append(
+                ValidationIssue(
+                    level='warning',
+                    message='skip cross-check because code column is missing',
+                )
+            )
+            return False
+
+        if not df['code'].notna().all():
+            report.warnings.append(
+                ValidationIssue(
+                    level='warning',
+                    message='skip cross-check because code contains null values',
+                )
+            )
+            return False
+
+        return True
 
     @classmethod
     def _validate_diff(

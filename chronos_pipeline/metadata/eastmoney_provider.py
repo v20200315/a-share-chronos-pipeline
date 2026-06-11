@@ -19,7 +19,6 @@ from .validator import CrossCheckRefs
 class EastMoneyMetadataProvider(MetadataProvider):
     provider_name = 'eastmoney'
 
-    EXPECTED_TOTAL = 5527
     BASE_URL = 'https://push2.eastmoney.com/webguest/api/qt/clist/get'
     DEFAULT_FIELDS = 'f3,f12,f14,f26'
     DEFAULT_FILTER = 'm:0+t:6+f:!2,m:0+t:80+f:!2,m:1+t:2+f:!2,m:1+t:23+f:!2,m:0+t:81+s:262144+f:!2'
@@ -28,17 +27,12 @@ class EastMoneyMetadataProvider(MetadataProvider):
         self,
         *,
         page_size: int = 100,
-        expected_total: int = EXPECTED_TOTAL,
         timeout: float = 15.0,
-        print_request_urls: bool = True,
         request_interval_seconds: float = 0.5,
     ):
         self.page_size = page_size
-        self.expected_total = expected_total
         self.timeout = timeout
-        self.print_request_urls = print_request_urls
         self.request_interval_seconds = request_interval_seconds
-        self.request_urls: list[str] = []
         self._last_cross_check: CrossCheckRefs | None = None
 
     @property
@@ -53,16 +47,18 @@ class EastMoneyMetadataProvider(MetadataProvider):
         return df
 
     def _fetch_all_rows(self) -> list[dict[str, Any]]:
-        self.request_urls = []
         with httpx.Client(timeout=self.timeout) as client:
-            page_count = self._page_count(self.expected_total, self.page_size)
-
             first_page = self._fetch_page(client, 1)
             data = first_page.get('data') or {}
             rows = data.get('diff') or []
+            total = int(data.get('total') or len(rows))
+            page_count = self._page_count(total, self.page_size)
             print(
-                f'[INFO] EastMoney page=1 rows={len(rows)} cumulative={len(rows)} '
-                f'url={self._last_request_url()}',
+                f'[INFO] EastMoney total={total} pages={page_count} pz={self.page_size}',
+                flush=True,
+            )
+            print(
+                f'[INFO] EastMoney page=1 rows={len(rows)} cumulative={len(rows)}',
                 flush=True,
             )
 
@@ -70,17 +66,16 @@ class EastMoneyMetadataProvider(MetadataProvider):
                 page_data = self._fetch_page(client, page).get('data') or {}
                 page_rows = page_data.get('diff') or []
                 rows.extend(page_rows)
+                print(
+                    f'[INFO] EastMoney page={page} rows={len(page_rows)} cumulative={len(rows)}',
+                    flush=True,
+                )
 
-        print(f'[INFO] EastMoney requests sent: {len(self.request_urls)}', flush=True)
+        print(f'[INFO] EastMoney requests sent: {page_count}', flush=True)
         return rows
 
     def _fetch_page(self, client: httpx.Client, page: int) -> dict[str, Any]:
-        request = client.build_request('GET', self.BASE_URL, params=self._build_params(page))
-        self.request_urls.append(str(request.url))
-        if self.print_request_urls:
-            print(f'[REQUEST] page={page} url={request.url}', flush=True)
-
-        response = client.send(request)
+        response = client.get(self.BASE_URL, params=self._build_params(page))
         response.raise_for_status()
         time.sleep(self.request_interval_seconds)
         return self._parse_jsonp(response.text)
@@ -88,11 +83,6 @@ class EastMoneyMetadataProvider(MetadataProvider):
     @staticmethod
     def _page_count(total: int, page_size: int) -> int:
         return max(1, ceil(total / page_size))
-
-    def _last_request_url(self) -> str:
-        if not self.request_urls:
-            return 'N/A'
-        return self.request_urls[-1]
 
     def _build_params(self, page: int) -> dict[str, str | int]:
         timestamp = int(time.time() * 1000)

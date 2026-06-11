@@ -81,32 +81,31 @@ def test_eastmoney_normalizes_rows_to_stock_basic_schema():
     }
 
 
-def test_eastmoney_uses_page_size_100_and_56_pages_for_5527_records():
+def test_eastmoney_uses_page_size_100_and_56_pages_for_5531_records():
     provider = EastMoneyMetadataProvider()
     params = provider._build_params(page=56)
 
     assert provider.page_size == 100
-    assert provider.expected_total == 5527
     assert params['pz'] == 100
     assert params['pn'] == 56
-    assert EastMoneyMetadataProvider._page_count(total=5527, page_size=100) == 56
+    assert EastMoneyMetadataProvider._page_count(total=5531, page_size=100) == 56
 
 
-def test_eastmoney_fetch_all_rows_uses_expected_total_for_page_count(monkeypatch):
+def test_eastmoney_fetch_all_rows_uses_first_page_total_for_page_count(monkeypatch):
     requested_pages = []
 
     def fake_fetch_page(self, client, page):
         requested_pages.append(page)
         return {
             'data': {
-                'total': 731,
+                'total': 250,
                 'diff': [{'f12': f'{page:06d}', 'f14': f'name-{page}', 'f26': 20200101}],
             }
         }
 
     monkeypatch.setattr(EastMoneyMetadataProvider, '_fetch_page', fake_fetch_page)
 
-    provider = EastMoneyMetadataProvider(page_size=100, expected_total=250)
+    provider = EastMoneyMetadataProvider(page_size=100)
     rows = provider._fetch_all_rows()
 
     assert requested_pages == [1, 2, 3]
@@ -132,6 +131,57 @@ def test_validate_structure_detects_duplicate_code(monkeypatch):
 
     assert not report.passed
     assert any('duplicate code' in issue.message for issue in report.errors)
+
+
+def test_validate_missing_required_columns_does_not_crash_with_diff_or_cross_check(monkeypatch):
+    monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
+    monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
+
+    df = pd.DataFrame([{'name': 'missing-code'}])
+    previous_df = _sample_df()
+    cross_check = CrossCheckRefs(
+        universe_codes={'600519'},
+        listed_codes={'600519'},
+    )
+
+    report = MetadataValidator.validate_stock_basic(
+        df,
+        previous_df=previous_df,
+        cross_check=cross_check,
+    )
+
+    assert not report.passed
+    assert any('missing required columns' in issue.message for issue in report.errors)
+    assert any('skip snapshot diff' in issue.message for issue in report.warnings)
+    assert any('skip cross-check' in issue.message for issue in report.warnings)
+
+
+def test_validate_diff_skips_when_current_or_previous_codes_are_not_unique(monkeypatch):
+    monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
+    monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
+
+    current_df = pd.concat([_sample_df(), _sample_df().iloc[[0]]], ignore_index=True)
+    previous_df = _sample_df()
+
+    report = MetadataValidator.validate_stock_basic(current_df, previous_df=previous_df)
+
+    assert not report.passed
+    assert report.diff is None
+    assert any('skip snapshot diff because code is not unique' in issue.message for issue in report.warnings)
+
+
+def test_validate_diff_skips_when_previous_snapshot_codes_are_not_unique(monkeypatch):
+    monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
+    monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
+
+    current_df = _sample_df()
+    previous_df = pd.concat([_sample_df(), _sample_df().iloc[[0]]], ignore_index=True)
+
+    report = MetadataValidator.validate_stock_basic(current_df, previous_df=previous_df)
+
+    assert report.passed
+    assert report.diff is None
+    assert any('skip snapshot diff because code is not unique' in issue.message for issue in report.warnings)
 
 
 def test_validate_diff_flags_large_removal(monkeypatch):
