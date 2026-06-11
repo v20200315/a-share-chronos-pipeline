@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 import pandas as pd
+from tqdm.auto import tqdm
 
 from chronos_pipeline.models import StockBasic
 
@@ -29,10 +30,12 @@ class EastMoneyMetadataProvider(MetadataProvider):
         page_size: int = 100,
         timeout: float = 15.0,
         request_interval_seconds: float = 0.5,
+        show_progress: bool = True,
     ):
         self.page_size = page_size
         self.timeout = timeout
         self.request_interval_seconds = request_interval_seconds
+        self.show_progress = show_progress
         self._last_cross_check: CrossCheckRefs | None = None
 
     @property
@@ -57,21 +60,25 @@ class EastMoneyMetadataProvider(MetadataProvider):
                 f'[INFO] EastMoney total={total} pages={page_count} pz={self.page_size}',
                 flush=True,
             )
-            print(
-                f'[INFO] EastMoney page=1 rows={len(rows)} cumulative={len(rows)}',
-                flush=True,
-            )
 
-            for page in range(2, page_count + 1):
-                page_data = self._fetch_page(client, page).get('data') or {}
-                page_rows = page_data.get('diff') or []
-                rows.extend(page_rows)
-                print(
-                    f'[INFO] EastMoney page={page} rows={len(page_rows)} cumulative={len(rows)}',
-                    flush=True,
-                )
+            with tqdm(
+                total=page_count,
+                desc='EastMoney metadata',
+                unit='page',
+                disable=not self.show_progress,
+            ) as progress:
+                progress.update(1)
+                progress.set_postfix(rows=len(rows))
+
+                for page in range(2, page_count + 1):
+                    page_data = self._fetch_page(client, page).get('data') or {}
+                    page_rows = page_data.get('diff') or []
+                    rows.extend(page_rows)
+                    progress.update(1)
+                    progress.set_postfix(rows=len(rows))
 
         print(f'[INFO] EastMoney requests sent: {page_count}', flush=True)
+        print(f'[INFO] EastMoney retrieved rows: {len(rows)}', flush=True)
         return rows
 
     def _fetch_page(self, client: httpx.Client, page: int) -> dict[str, Any]:

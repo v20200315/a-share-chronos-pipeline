@@ -105,7 +105,7 @@ def test_eastmoney_fetch_all_rows_uses_first_page_total_for_page_count(monkeypat
 
     monkeypatch.setattr(EastMoneyMetadataProvider, '_fetch_page', fake_fetch_page)
 
-    provider = EastMoneyMetadataProvider(page_size=100)
+    provider = EastMoneyMetadataProvider(page_size=100, show_progress=False)
     rows = provider._fetch_all_rows()
 
     assert requested_pages == [1, 2, 3]

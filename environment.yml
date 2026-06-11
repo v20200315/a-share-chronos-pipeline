@@ -10,6 +10,7 @@ dependencies:
   - ruff
   - httpx
   - pytest
+  - tqdm
   
   - pip
   - pip:
