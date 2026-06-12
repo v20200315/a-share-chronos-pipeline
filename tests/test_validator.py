@@ -161,7 +161,10 @@ def test_validate_diff_skips_when_current_or_previous_codes_are_not_unique(monke
 
     assert not report.passed
     assert report.diff is None
-    assert any('skip snapshot diff because code is not unique' in issue.message for issue in report.warnings)
+    assert any(
+        'skip snapshot diff because code is not unique' in issue.message
+        for issue in report.warnings
+    )
 
 
 def test_validate_diff_skips_when_previous_snapshot_codes_are_not_unique(monkeypatch):
@@ -175,7 +178,10 @@ def test_validate_diff_skips_when_previous_snapshot_codes_are_not_unique(monkeyp
 
     assert report.passed
     assert report.diff is None
-    assert any('skip snapshot diff because code is not unique' in issue.message for issue in report.warnings)
+    assert any(
+        'skip snapshot diff because code is not unique' in issue.message
+        for issue in report.warnings
+    )
 
 
 def test_validate_diff_flags_large_removal(monkeypatch):

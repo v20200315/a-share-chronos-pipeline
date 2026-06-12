@@ -8,7 +8,6 @@ from .eastmoney_validator import EastMoneyMetadataValidator
 from .provider import MetadataProvider
 from .validator import MetadataValidationError, MetadataValidator
 
-
 VALIDATORS: dict[str, type[MetadataValidator]] = {
     AkshareMetadataValidator.provider_name: AkshareMetadataValidator,
     EastMoneyMetadataValidator.provider_name: EastMoneyMetadataValidator,
@@ -80,7 +79,9 @@ class MetadataManager:
         try:
             return VALIDATORS[self.provider.provider_name]
         except KeyError as exc:
-            raise ValueError(f'unsupported provider validator: {self.provider.provider_name}') from exc
+            raise ValueError(
+                f'unsupported provider validator: {self.provider.provider_name}'
+            ) from exc
 
     def load(self):
         return pd.read_parquet(self.file_path)

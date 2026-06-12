@@ -230,10 +230,10 @@ class MetadataValidator:
         missing_list_date_count = int(missing_list_date_mask.sum())
         missing_list_date_ratio = missing_list_date_mask.mean()
         if missing_list_date_count:
-            sample_codes = df.loc[missing_list_date_mask, 'code'].dropna().astype(str).head(5).tolist()
-            ratio_status = (
-                'too_high' if missing_list_date_ratio > cls.MAX_UNKNOWN_RATIO else 'ok'
+            sample_codes = (
+                df.loc[missing_list_date_mask, 'code'].dropna().astype(str).head(5).tolist()
             )
+            ratio_status = 'too_high' if missing_list_date_ratio > cls.MAX_UNKNOWN_RATIO else 'ok'
             report.warnings.append(
                 ValidationIssue(
                     level='warning',
