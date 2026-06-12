@@ -61,6 +61,7 @@ class CleanupReport:
     row_count_before: int
     row_count_after: int
     removed_count: int
+    removed_codes: list[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
@@ -125,8 +126,17 @@ class MetadataValidator:
             row_count_before=len(df),
             row_count_after=len(cleaned),
             removed_count=int(removable_mask.sum()),
+            removed_codes=cls._removed_codes(df, removable_mask),
         )
         return cleaned, report
+
+    @staticmethod
+    def _removed_codes(df: pd.DataFrame, removable_mask: pd.Series) -> list[str]:
+        if 'code' not in df.columns:
+            return []
+
+        codes = df.loc[removable_mask, 'code'].dropna().astype(str).tolist()
+        return sorted(codes)
 
     @classmethod
     def _removable_error_mask(cls, df: pd.DataFrame, *, strict: bool) -> pd.Series:
@@ -216,12 +226,25 @@ class MetadataValidator:
                 ValidationIssue(level='error', message='list_date contains future dates')
             )
 
-        missing_list_date_ratio = parsed_dates.isna().mean()
-        if missing_list_date_ratio > cls.MAX_UNKNOWN_RATIO:
+        missing_list_date_mask = parsed_dates.isna()
+        missing_list_date_count = int(missing_list_date_mask.sum())
+        missing_list_date_ratio = missing_list_date_mask.mean()
+        if missing_list_date_count:
+            sample_codes = df.loc[missing_list_date_mask, 'code'].dropna().astype(str).head(5).tolist()
+            ratio_status = (
+                'too_high' if missing_list_date_ratio > cls.MAX_UNKNOWN_RATIO else 'ok'
+            )
             report.warnings.append(
                 ValidationIssue(
                     level='warning',
-                    message=f'missing list_date ratio too high: {missing_list_date_ratio:.2%}',
+                    message=(
+                        'missing or unparsable list_date rows: '
+                        f'count={missing_list_date_count}, '
+                        f'ratio={missing_list_date_ratio:.2%}, '
+                        f'threshold={cls.MAX_UNKNOWN_RATIO:.2%}, '
+                        f'status={ratio_status}, '
+                        f'sample={sample_codes}'
+                    ),
                 )
             )
 

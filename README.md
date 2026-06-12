@@ -71,6 +71,7 @@ Example output:
 
 ```text
 [INFO] cleanup: before=5532, after=5531, removed=1
+[INFO] removed codes: 600519
 [INFO] dry-run: parquet not modified
 ```
 

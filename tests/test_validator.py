@@ -207,6 +207,24 @@ def test_strict_promotes_warnings_to_errors(monkeypatch):
     assert any('[strict]' in issue.message for issue in report.errors)
 
 
+def test_validate_reports_missing_list_date_below_ratio_threshold(monkeypatch):
+    monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
+    monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
+    monkeypatch.setattr(MetadataValidator, 'MAX_UNKNOWN_RATIO', 1.0)
+
+    df = _sample_df()
+    df.loc[df['code'] == '920001', 'list_date'] = pd.NA
+
+    report = MetadataValidator.validate_stock_basic(df)
+
+    assert report.passed
+    assert any(
+        'missing or unparsable list_date rows: count=1, ratio=33.33%, threshold=100.00%, status=ok'
+        in issue.message
+        for issue in report.warnings
+    )
+
+
 def test_clean_stock_basic_removes_errors_but_keeps_warning_rows_without_strict():
     df = _sample_df()
     missing_list_date = pd.DataFrame(
@@ -228,6 +246,7 @@ def test_clean_stock_basic_removes_errors_but_keeps_warning_rows_without_strict(
     assert report.row_count_before == 5
     assert report.row_count_after == 2
     assert report.removed_count == 3
+    assert report.removed_codes == ['000001', '600519', '920001']
     assert cleaned['code'].tolist() == ['600519', '300750']
 
 
@@ -240,6 +259,7 @@ def test_clean_stock_basic_removes_warning_rows_with_strict():
     assert report.row_count_before == 3
     assert report.row_count_after == 2
     assert report.removed_count == 1
+    assert report.removed_codes == ['600519']
     assert '600519' not in set(cleaned['code'])
 
 
@@ -272,7 +292,7 @@ def test_manager_refresh_preserves_fetched_rows_without_validation(tmp_path, mon
     assert len(reloaded) == 2
 
 
-def test_manager_clean_removes_errors_from_parquet(tmp_path, monkeypatch):
+def test_manager_clean_removes_errors_from_parquet(tmp_path, monkeypatch, capsys):
     from chronos_pipeline.metadata.manager import MetadataManager
 
     monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
@@ -290,9 +310,11 @@ def test_manager_clean_removes_errors_from_parquet(tmp_path, monkeypatch):
 
     reloaded = pd.read_parquet(parquet_path)
     assert report.removed_count == 1
+    assert report.removed_codes == ['600519']
     assert len(cleaned) == 2
     assert len(reloaded) == 2
     assert '600519' not in set(reloaded['code'])
+    assert '[INFO] removed codes: 600519' in capsys.readouterr().out
 
 
 def test_manager_clean_strict_removes_warning_rows_from_parquet(tmp_path, monkeypatch):

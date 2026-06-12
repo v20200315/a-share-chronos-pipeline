@@ -62,6 +62,7 @@ class MetadataManager:
                 f'after={report.row_count_after}, '
                 f'removed={report.removed_count}'
             )
+            print(f'[INFO] removed codes: {", ".join(report.removed_codes)}')
         else:
             print('[OK] cleanup: no removable row errors found')
 
