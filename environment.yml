@@ -11,7 +11,8 @@ dependencies:
   - httpx
   - pytest
   - tqdm
-  
+  - numba
+
   - pip
   - pip:
       - --index-url https://pypi.tuna.tsinghua.edu.cn/simple
