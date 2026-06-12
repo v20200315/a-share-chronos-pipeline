@@ -12,12 +12,6 @@ from .exchange import infer_exchange
 
 
 @dataclass
-class CrossCheckRefs:
-    universe_codes: set[str]
-    listed_codes: set[str]
-
-
-@dataclass
 class ValidationIssue:
     level: str
     message: str
@@ -62,6 +56,17 @@ class ValidationReport:
         return payload
 
 
+@dataclass
+class CleanupReport:
+    row_count_before: int
+    row_count_after: int
+    removed_count: int
+
+    @property
+    def changed(self) -> bool:
+        return self.removed_count > 0
+
+
 class MetadataValidationError(Exception):
     def __init__(self, report: ValidationReport):
         self.report = report
@@ -79,7 +84,6 @@ class MetadataValidator:
     MAX_ADDED_RATIO = 0.01
     MAX_UNKNOWN_RATIO = 0.05
     MAX_NAME_CHANGE_COUNT = 100
-    MAX_CROSS_CHECK_ONLY_IN_LISTED = 0
 
     @classmethod
     def validate_stock_basic(
@@ -87,7 +91,6 @@ class MetadataValidator:
         df: pd.DataFrame,
         *,
         previous_df: pd.DataFrame | None = None,
-        cross_check: CrossCheckRefs | None = None,
         strict: bool = False,
     ) -> ValidationReport:
         report = ValidationReport(row_count=len(df))
@@ -101,9 +104,6 @@ class MetadataValidator:
         ):
             report.diff = cls._validate_diff(df, previous_df, report, strict=strict)
 
-        if cross_check is not None and cls._can_validate_cross_check(df, report):
-            cls._validate_cross_check(df, cross_check, report, strict=strict)
-
         if strict and report.warnings:
             for warning in report.warnings:
                 report.errors.append(
@@ -111,6 +111,42 @@ class MetadataValidator:
                 )
 
         return report
+
+    @classmethod
+    def clean_stock_basic(
+        cls,
+        df: pd.DataFrame,
+        *,
+        strict: bool = False,
+    ) -> tuple[pd.DataFrame, CleanupReport]:
+        removable_mask = cls._removable_error_mask(df, strict=strict)
+        cleaned = df.loc[~removable_mask].copy()
+        report = CleanupReport(
+            row_count_before=len(df),
+            row_count_after=len(cleaned),
+            removed_count=int(removable_mask.sum()),
+        )
+        return cleaned, report
+
+    @classmethod
+    def _removable_error_mask(cls, df: pd.DataFrame, *, strict: bool) -> pd.Series:
+        mask = pd.Series(False, index=df.index)
+        if not cls.REQUIRED_COLUMNS.issubset(df.columns):
+            return mask
+
+        mask |= df['code'].isna()
+        mask |= df['name'].isna()
+        mask |= ~df['code'].astype(str).str.match(r'^\d{6}$')
+        mask |= ~df['exchange'].isin(['SH', 'SZ', 'BJ', 'UNKNOWN'])
+        mask |= df['exchange'].ne(df['code'].astype(str).map(infer_exchange))
+        mask |= df['code'].duplicated(keep='first')
+
+        parsed_dates = pd.to_datetime(df['list_date'], format='%Y-%m-%d', errors='coerce')
+        if strict:
+            mask |= parsed_dates.isna()
+        mask |= parsed_dates.gt(pd.Timestamp.today().normalize()).fillna(False)
+
+        return mask
 
     @classmethod
     def _validate_structure(cls, df: pd.DataFrame, report: ValidationReport) -> None:
@@ -174,7 +210,7 @@ class MetadataValidator:
                 )
             )
 
-        parsed_dates = pd.to_datetime(df['list_date'], errors='coerce')
+        parsed_dates = pd.to_datetime(df['list_date'], format='%Y-%m-%d', errors='coerce')
         if parsed_dates.notna().any() and parsed_dates.gt(pd.Timestamp.today().normalize()).any():
             report.errors.append(
                 ValidationIssue(level='error', message='list_date contains future dates')
@@ -224,28 +260,6 @@ class MetadataValidator:
                 ValidationIssue(
                     level='warning',
                     message='skip snapshot diff because code is not unique',
-                )
-            )
-            return False
-
-        return True
-
-    @classmethod
-    def _can_validate_cross_check(cls, df: pd.DataFrame, report: ValidationReport) -> bool:
-        if 'code' not in df.columns:
-            report.warnings.append(
-                ValidationIssue(
-                    level='warning',
-                    message='skip cross-check because code column is missing',
-                )
-            )
-            return False
-
-        if not df['code'].notna().all():
-            report.warnings.append(
-                ValidationIssue(
-                    level='warning',
-                    message='skip cross-check because code contains null values',
                 )
             )
             return False
@@ -345,64 +359,6 @@ class MetadataValidator:
             )
 
         return diff
-
-    @classmethod
-    def _validate_cross_check(
-        cls,
-        df: pd.DataFrame,
-        cross_check: CrossCheckRefs,
-        report: ValidationReport,
-        *,
-        strict: bool,
-    ) -> None:
-        current_codes = set(df['code'].astype(str))
-        universe_codes = set(cross_check.universe_codes)
-        listed_codes = set(cross_check.listed_codes)
-
-        missing_from_output = sorted(universe_codes - current_codes)
-        if missing_from_output:
-            report.errors.append(
-                ValidationIssue(
-                    level='error',
-                    message=(
-                        'universe codes missing from output: '
-                        f'{len(missing_from_output)} ({missing_from_output[:5]}...)'
-                    ),
-                )
-            )
-
-        only_in_listed = sorted(listed_codes - universe_codes)
-        if len(only_in_listed) > cls.MAX_CROSS_CHECK_ONLY_IN_LISTED:
-            report.errors.append(
-                ValidationIssue(
-                    level='error',
-                    message=(
-                        'listed codes missing from universe source: '
-                        f'{len(only_in_listed)} ({only_in_listed[:5]}...)'
-                    ),
-                )
-            )
-
-        universe_only = sorted(universe_codes - listed_codes)
-        universe_only_ratio = len(universe_only) / max(len(universe_codes), 1)
-        if universe_only_ratio > cls.MAX_UNKNOWN_RATIO:
-            report.warnings.append(
-                ValidationIssue(
-                    level='warning',
-                    message=(
-                        'universe codes without exchange list_date source: '
-                        f'{len(universe_only)} ({universe_only_ratio:.2%})'
-                    ),
-                )
-            )
-
-        if strict and (missing_from_output or only_in_listed):
-            report.warnings.append(
-                ValidationIssue(
-                    level='warning',
-                    message='cross-check mismatch between universe and exchange sources',
-                )
-            )
 
     @staticmethod
     def write_audit(report: ValidationReport, audit_dir: Path) -> Path:

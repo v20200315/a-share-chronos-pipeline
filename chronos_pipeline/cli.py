@@ -19,28 +19,39 @@ def create_provider(name: str) -> MetadataProvider:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['refresh', 'load'])
+    parser.add_argument('command', choices=['refresh', 'validate', 'clean', 'load'])
     parser.add_argument(
         '--provider',
         choices=['akshare', 'eastmoney'],
         default='akshare',
-        help='metadata source used by refresh/load',
+        help='metadata source used by refresh/validate/clean/load',
     )
     parser.add_argument(
         '--strict',
         action='store_true',
         help='treat validation warnings as errors',
     )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='show cleanup impact without modifying parquet',
+    )
 
     args = parser.parse_args()
     manager = MetadataManager(provider=create_provider(args.provider))
 
     if args.command == 'refresh':
+        manager.refresh()
+
+    elif args.command == 'validate':
         try:
-            manager.refresh(strict=args.strict)
+            manager.validate(strict=args.strict)
         except MetadataValidationError as exc:
             print(f'[FAIL] {exc}', file=sys.stderr)
             sys.exit(1)
+
+    elif args.command == 'clean':
+        manager.clean(strict=args.strict, dry_run=args.dry_run)
 
     elif args.command == 'load':
         df = manager.load()

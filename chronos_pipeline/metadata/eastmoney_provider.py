@@ -14,7 +14,6 @@ from chronos_pipeline.models import StockBasic
 
 from .exchange import infer_exchange
 from .provider import MetadataProvider
-from .validator import CrossCheckRefs
 
 
 class EastMoneyMetadataProvider(MetadataProvider):
@@ -36,18 +35,10 @@ class EastMoneyMetadataProvider(MetadataProvider):
         self.timeout = timeout
         self.request_interval_seconds = request_interval_seconds
         self.show_progress = show_progress
-        self._last_cross_check: CrossCheckRefs | None = None
-
-    @property
-    def last_cross_check(self) -> CrossCheckRefs | None:
-        return self._last_cross_check
 
     def fetch_stock_basic(self) -> pd.DataFrame:
         rows = self._fetch_all_rows()
-        df = self._normalize_rows(rows)
-        codes = set(df['code'].astype(str))
-        self._last_cross_check = CrossCheckRefs(universe_codes=codes, listed_codes=codes)
-        return df
+        return self._normalize_rows(rows)
 
     def _fetch_all_rows(self) -> list[dict[str, Any]]:
         with httpx.Client(timeout=self.timeout) as client:
@@ -101,7 +92,7 @@ class EastMoneyMetadataProvider(MetadataProvider):
             'cb': callback,
             'fs': self.DEFAULT_FILTER,
             'fields': self.DEFAULT_FIELDS,
-            'fid': 'f3',
+            'fid': 'f12',
             'pn': page,
             'pz': self.page_size,
             'po': '1',
