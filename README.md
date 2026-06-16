@@ -117,3 +117,40 @@ Print the first rows of the saved parquet:
 python -m chronos_pipeline.cli load --provider akshare
 python -m chronos_pipeline.cli load --provider eastmoney
 ```
+
+## Daily Candlestick CLI
+
+Daily candlestick data uses AKShare `stock_zh_a_hist` only, with `adjust='qfq'`.
+The stock universe comes from the saved metadata parquet.
+
+Fetch qfq daily bars for every stock in the AkShare metadata parquet:
+
+```bash
+python -m chronos_pipeline.cli daily-refresh --metadata-provider akshare
+```
+
+Use another metadata parquet as the stock universe, while still using AKShare for daily bars:
+
+```bash
+python -m chronos_pipeline.cli daily-refresh --metadata-provider eastmoney
+```
+
+Fetch a small set of symbols for testing:
+
+```bash
+python -m chronos_pipeline.cli daily-refresh --metadata-provider akshare --symbols 600519,000001
+```
+
+Each stock is saved as its own parquet file:
+
+```text
+data/daily/akshare/<code>.parquet
+```
+
+For each stock, the fetch window is:
+
+- `end_date`: today
+- `start_date`: 5 years ago, unless the stock listed more recently
+- if listed less than 5 years ago, `start_date` is the stock's `list_date`
+
+Rows with invalid `list_date` are skipped because the fetch window cannot be bounded safely.
