@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import asdict
@@ -29,11 +30,13 @@ class EastMoneyMetadataProvider(MetadataProvider):
         page_size: int = 100,
         timeout: float = 15.0,
         request_interval_seconds: float = 0.5,
+        max_concurrency: int = 8,
         show_progress: bool = True,
     ):
         self.page_size = page_size
         self.timeout = timeout
         self.request_interval_seconds = request_interval_seconds
+        self.max_concurrency = max_concurrency
         self.show_progress = show_progress
 
     def fetch_stock_basic(self) -> pd.DataFrame:
@@ -41,11 +44,14 @@ class EastMoneyMetadataProvider(MetadataProvider):
         return self._normalize_rows(rows)
 
     def _fetch_all_rows(self) -> list[dict[str, Any]]:
-        with httpx.Client(timeout=self.timeout) as client:
-            first_page = self._fetch_page(client, 1)
+        return asyncio.run(self._fetch_all_rows_async())
+
+    async def _fetch_all_rows_async(self) -> list[dict[str, Any]]:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            first_page = await self._fetch_page(client, 1)
             data = first_page.get('data') or {}
-            rows = data.get('diff') or []
-            total = int(data.get('total') or len(rows))
+            first_page_rows = data.get('diff') or []
+            total = int(data.get('total') or len(first_page_rows))
             page_count = self._page_count(total, self.page_size)
             print(
                 f'[INFO] EastMoney total={total} pages={page_count} pz={self.page_size}',
@@ -59,23 +65,47 @@ class EastMoneyMetadataProvider(MetadataProvider):
                 disable=not self.show_progress,
             ) as progress:
                 progress.update(1)
-                progress.set_postfix(rows=len(rows))
+                progress.set_postfix(rows=len(first_page_rows))
 
-                for page in range(2, page_count + 1):
-                    page_data = self._fetch_page(client, page).get('data') or {}
-                    page_rows = page_data.get('diff') or []
-                    rows.extend(page_rows)
+                page_rows_by_page: dict[int, list[dict[str, Any]]] = {
+                    1: first_page_rows,
+                }
+                semaphore = asyncio.Semaphore(self.max_concurrency)
+                tasks = [
+                    self._fetch_page_rows(client, page, semaphore)
+                    for page in range(2, page_count + 1)
+                ]
+                for task in asyncio.as_completed(tasks):
+                    page, page_rows = await task
+                    page_rows_by_page[page] = page_rows
                     progress.update(1)
-                    progress.set_postfix(rows=len(rows))
+                    retrieved_rows = sum(len(rows) for rows in page_rows_by_page.values())
+                    progress.set_postfix(rows=retrieved_rows)
 
         print(f'[INFO] EastMoney requests sent: {page_count}', flush=True)
+        rows = [
+            row
+            for page in range(1, page_count + 1)
+            for row in page_rows_by_page.get(page, [])
+        ]
         print(f'[INFO] EastMoney retrieved rows: {len(rows)}', flush=True)
         return rows
 
-    def _fetch_page(self, client: httpx.Client, page: int) -> dict[str, Any]:
-        response = client.get(self.BASE_URL, params=self._build_params(page))
+    async def _fetch_page_rows(
+        self,
+        client: httpx.AsyncClient,
+        page: int,
+        semaphore: asyncio.Semaphore,
+    ) -> tuple[int, list[dict[str, Any]]]:
+        async with semaphore:
+            page_data = (await self._fetch_page(client, page)).get('data') or {}
+            return page, page_data.get('diff') or []
+
+    async def _fetch_page(self, client: httpx.AsyncClient, page: int) -> dict[str, Any]:
+        response = await client.get(self.BASE_URL, params=self._build_params(page))
         response.raise_for_status()
-        time.sleep(self.request_interval_seconds)
+        if self.request_interval_seconds:
+            await asyncio.sleep(self.request_interval_seconds)
         return self._parse_jsonp(response.text)
 
     @staticmethod

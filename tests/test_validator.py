@@ -94,7 +94,7 @@ def test_eastmoney_uses_page_size_100_and_56_pages_for_5531_records():
 def test_eastmoney_fetch_all_rows_uses_first_page_total_for_page_count(monkeypatch):
     requested_pages = []
 
-    def fake_fetch_page(self, client, page):
+    async def fake_fetch_page(self, client, page):
         requested_pages.append(page)
         return {
             'data': {
