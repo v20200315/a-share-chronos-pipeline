@@ -1,9 +1,38 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from chronos_pipeline.daily.akshare_provider import AkshareDailyBarProvider
 from chronos_pipeline.daily.manager import DailyBarManager
+
+
+class FakeDailyBarProvider:
+    provider_name = 'fake'
+
+    def __init__(self):
+        self.calls = []
+
+    def fetch_daily_bars(self, code, start_date, end_date):
+        self.calls.append((code, start_date, end_date))
+        return pd.DataFrame(
+            [
+                {
+                    'code': code,
+                    'date': start_date.strftime('%Y-%m-%d'),
+                    'open': 1.0,
+                    'high': 1.0,
+                    'low': 1.0,
+                    'close': 1.0,
+                    'volume': 1.0,
+                    'amount': 1.0,
+                    'amplitude': 0.0,
+                    'pct_change': 0.0,
+                    'change': 0.0,
+                    'turnover': 0.0,
+                }
+            ]
+        )
 
 
 def test_calculate_start_date_uses_five_year_window_for_old_listing():
@@ -67,9 +96,7 @@ def test_akshare_daily_bar_normalize_to_daily_bar_schema():
     }
 
 
-def test_daily_bar_manager_writes_one_parquet_per_symbol(tmp_path):
-    metadata_dir = tmp_path / 'metadata'
-    daily_dir = tmp_path / 'daily'
+def _write_metadata(metadata_dir):
     metadata_dir.mkdir()
     pd.DataFrame(
         [
@@ -85,35 +112,20 @@ def test_daily_bar_manager_writes_one_parquet_per_symbol(tmp_path):
                 'exchange': 'SZ',
                 'list_date': '2024-01-01',
             },
+            {
+                'code': '300750',
+                'name': '宁德时代',
+                'exchange': 'SZ',
+                'list_date': '2018-06-11',
+            },
         ]
     ).to_parquet(metadata_dir / 'stock_basic_akshare.parquet', index=False)
 
-    class FakeDailyBarProvider:
-        provider_name = 'fake'
 
-        def __init__(self):
-            self.calls = []
-
-        def fetch_daily_bars(self, code, start_date, end_date):
-            self.calls.append((code, start_date, end_date))
-            return pd.DataFrame(
-                [
-                    {
-                        'code': code,
-                        'date': start_date.strftime('%Y-%m-%d'),
-                        'open': 1.0,
-                        'high': 1.0,
-                        'low': 1.0,
-                        'close': 1.0,
-                        'volume': 1.0,
-                        'amount': 1.0,
-                        'amplitude': 0.0,
-                        'pct_change': 0.0,
-                        'change': 0.0,
-                        'turnover': 0.0,
-                    }
-                ]
-            )
+def test_daily_bar_manager_writes_one_parquet_per_symbol(tmp_path):
+    metadata_dir = tmp_path / 'metadata'
+    daily_dir = tmp_path / 'daily'
+    _write_metadata(metadata_dir)
 
     provider = FakeDailyBarProvider()
     manager = DailyBarManager(
@@ -134,3 +146,41 @@ def test_daily_bar_manager_writes_one_parquet_per_symbol(tmp_path):
     saved = pd.read_parquet(output_path)
     assert saved.loc[0, 'code'] == '600519'
     assert not (daily_dir / '000001.parquet').exists()
+
+
+def test_daily_bar_manager_refresh_top_limits_sorted_metadata(tmp_path):
+    metadata_dir = tmp_path / 'metadata'
+    daily_dir = tmp_path / 'daily'
+    _write_metadata(metadata_dir)
+
+    provider = FakeDailyBarProvider()
+    manager = DailyBarManager(
+        data_dir=daily_dir,
+        metadata_dir=metadata_dir,
+        provider=provider,
+        today=date(2026, 6, 16),
+        show_progress=False,
+    )
+
+    report = manager.refresh(top=2)
+
+    assert [path.name for path in report.saved_paths] == ['000001.parquet', '300750.parquet']
+    assert [call[0] for call in provider.calls] == ['000001', '300750']
+    assert not (daily_dir / '600519.parquet').exists()
+
+
+def test_daily_bar_manager_refresh_rejects_invalid_top(tmp_path):
+    metadata_dir = tmp_path / 'metadata'
+    daily_dir = tmp_path / 'daily'
+    _write_metadata(metadata_dir)
+
+    manager = DailyBarManager(
+        data_dir=daily_dir,
+        metadata_dir=metadata_dir,
+        provider=FakeDailyBarProvider(),
+        today=date(2026, 6, 16),
+        show_progress=False,
+    )
+
+    with pytest.raises(ValueError, match='top must be a positive integer'):
+        manager.refresh(top=0)

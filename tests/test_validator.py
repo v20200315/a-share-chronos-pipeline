@@ -108,8 +108,10 @@ def test_eastmoney_fetch_all_rows_uses_first_page_total_for_page_count(monkeypat
     provider = EastMoneyMetadataProvider(page_size=100, show_progress=False)
     rows = provider._fetch_all_rows()
 
-    assert requested_pages == [1, 2, 3]
+    assert requested_pages[0] == 1
+    assert sorted(requested_pages) == [1, 2, 3]
     assert len(rows) == 3
+    assert [row['f12'] for row in rows] == ['000001', '000002', '000003']
 
 
 def test_validate_structure_passes_with_relaxed_bounds(monkeypatch):

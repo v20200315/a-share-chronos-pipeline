@@ -36,8 +36,13 @@ class DailyBarManager:
         self.today = today or date.today()
         self.show_progress = show_progress
 
-    def refresh(self, *, symbols: list[str] | None = None) -> DailyRefreshReport:
-        metadata = self._load_metadata(symbols=symbols)
+    def refresh(
+        self,
+        *,
+        symbols: list[str] | None = None,
+        top: int | None = None,
+    ) -> DailyRefreshReport:
+        metadata = self._load_metadata(symbols=symbols, top=top)
         report = DailyRefreshReport()
 
         with tqdm(
@@ -81,7 +86,15 @@ class DailyBarManager:
         )
         return report
 
-    def _load_metadata(self, *, symbols: list[str] | None = None) -> pd.DataFrame:
+    def _load_metadata(
+        self,
+        *,
+        symbols: list[str] | None = None,
+        top: int | None = None,
+    ) -> pd.DataFrame:
+        if top is not None and top <= 0:
+            raise ValueError('top must be a positive integer')
+
         metadata = pd.read_parquet(self.metadata_path)
         metadata['code'] = metadata['code'].astype(str).str.zfill(6)
 
@@ -89,7 +102,11 @@ class DailyBarManager:
             symbol_set = {str(symbol).zfill(6) for symbol in symbols}
             metadata = metadata[metadata['code'].isin(symbol_set)]
 
-        return metadata.sort_values('code')
+        metadata = metadata.sort_values('code')
+        if top is not None:
+            metadata = metadata.head(top)
+
+        return metadata
 
     @staticmethod
     def calculate_start_date(list_date: str | None, *, today: date | None = None) -> date | None:

@@ -54,6 +54,11 @@ def main():
         '--symbols',
         help='comma-separated stock codes used by daily-refresh, for example 600519,000001',
     )
+    parser.add_argument(
+        '--top',
+        type=int,
+        help='fetch daily bars for the first N stocks after metadata filtering',
+    )
 
     args = parser.parse_args()
 
@@ -80,7 +85,11 @@ def main():
 
     elif args.command == 'daily-refresh':
         daily_manager = DailyBarManager(metadata_provider_name=args.metadata_provider)
-        daily_manager.refresh(symbols=parse_symbols(args.symbols))
+        try:
+            daily_manager.refresh(symbols=parse_symbols(args.symbols), top=args.top)
+        except ValueError as exc:
+            print(f'[FAIL] {exc}', file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == '__main__':

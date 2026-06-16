@@ -141,6 +141,12 @@ Fetch a small set of symbols for testing:
 python -m chronos_pipeline.cli daily-refresh --metadata-provider akshare --symbols 600519,000001
 ```
 
+Fetch only the first N stocks from the metadata parquet:
+
+```bash
+python -m chronos_pipeline.cli daily-refresh --metadata-provider akshare --top 100
+```
+
 Each stock is saved as its own parquet file:
 
 ```text
