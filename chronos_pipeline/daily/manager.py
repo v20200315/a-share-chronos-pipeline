@@ -28,7 +28,6 @@ class DailyRefreshReport:
             'saved_count': len(self.saved_paths),
             'skipped_count': len(self.skipped_codes),
             'failed_count': len(self.failed_codes),
-            'saved_paths': [str(path) for path in self.saved_paths],
             'skipped_codes': self.skipped_codes,
             'failed_codes': self.failed_codes,
             'skipped_reasons': self.skipped_reasons,

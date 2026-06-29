@@ -330,7 +330,7 @@ def test_daily_bar_manager_writes_local_report(tmp_path):
     assert payload['failed_count'] == 1
     assert payload['failed_codes'] == ['300750']
     assert payload['failed_reasons'] == {'300750': 'boom'}
-    assert payload['saved_paths'] == [str(daily_dir / '600519.parquet')]
+    assert 'saved_paths' not in payload
     assert payload['report_path'] == str(report.report_path)
 
 
