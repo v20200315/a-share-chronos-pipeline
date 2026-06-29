@@ -83,11 +83,7 @@ class EastMoneyMetadataProvider(MetadataProvider):
                     progress.set_postfix(rows=retrieved_rows)
 
         print(f'[INFO] EastMoney requests sent: {page_count}', flush=True)
-        rows = [
-            row
-            for page in range(1, page_count + 1)
-            for row in page_rows_by_page.get(page, [])
-        ]
+        rows = [row for page in range(1, page_count + 1) for row in page_rows_by_page.get(page, [])]
         print(f'[INFO] EastMoney retrieved rows: {len(rows)}', flush=True)
         return rows
 

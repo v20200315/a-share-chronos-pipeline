@@ -74,7 +74,9 @@ class AkshareDailyBarProvider(DailyBarProvider):
 
         normalized = df.rename(columns=cls.COLUMN_MAP).copy()
         normalized['code'] = code
-        normalized['date'] = pd.to_datetime(normalized['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+        normalized['date'] = pd.to_datetime(normalized['date'], errors='coerce').dt.strftime(
+            '%Y-%m-%d'
+        )
 
         for column in cls.NUMERIC_COLUMNS:
             if column not in normalized.columns:

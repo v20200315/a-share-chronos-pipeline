@@ -1,5 +1,5 @@
-from numba import jit
 import numpy as np
+from numba import jit
 
 x = np.arange(100).reshape(10, 10)
 

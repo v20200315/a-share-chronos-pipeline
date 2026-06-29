@@ -79,8 +79,7 @@ class DailyBarManager:
 
         metadata = self._load_metadata(symbols=symbols, top=top)
         print(
-            '[INFO] daily refresh start: '
-            f'stocks={len(metadata)}, max_concurrency={max_concurrency}'
+            f'[INFO] daily refresh start: stocks={len(metadata)}, max_concurrency={max_concurrency}'
         )
         report = asyncio.run(
             self._refresh_async(metadata=metadata, max_concurrency=max_concurrency)

@@ -1,6 +1,6 @@
-from datetime import date
 import json
 import time
+from datetime import date
 
 import pandas as pd
 import pytest

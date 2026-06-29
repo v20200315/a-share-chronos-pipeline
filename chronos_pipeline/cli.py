@@ -27,7 +27,9 @@ def parse_symbols(value: str | None) -> list[str] | None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['refresh', 'validate', 'clean', 'load', 'daily-refresh'])
+    parser.add_argument(
+        'command', choices=['refresh', 'validate', 'clean', 'load', 'daily-refresh']
+    )
     parser.add_argument(
         '--provider',
         choices=['akshare', 'eastmoney'],
