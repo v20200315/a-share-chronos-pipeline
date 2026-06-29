@@ -129,6 +129,12 @@ Fetch qfq daily bars for every stock in the AkShare metadata parquet:
 python -m chronos_pipeline.cli daily-refresh --metadata-provider akshare
 ```
 
+Daily refresh uses bounded asyncio concurrency around AKShare requests. Start with a modest concurrency value, then increase only if the provider remains stable:
+
+```bash
+python -m chronos_pipeline.cli daily-refresh --metadata-provider akshare --max-concurrency 8
+```
+
 Use another metadata parquet as the stock universe, while still using AKShare for daily bars:
 
 ```bash
@@ -160,3 +166,5 @@ For each stock, the fetch window is:
 - if listed less than 5 years ago, `start_date` is the stock's `list_date`
 
 Rows with invalid `list_date` are skipped because the fetch window cannot be bounded safely.
+
+Fetched daily bars are saved only when the returned `date` range covers the requested window endpoints, with a 7-day tolerance for weekends and holidays. Empty, unparsable, late-starting, or early-ending results are marked as failed and are not written to parquet.

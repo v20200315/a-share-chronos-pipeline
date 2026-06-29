@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -18,7 +20,19 @@ class DailyRefreshReport:
     failed_codes: list[str] = field(default_factory=list)
 
 
+@dataclass
+class _DailyTaskResult:
+    order: int
+    code: str
+    status: str
+    output_path: Path | None = None
+    error: Exception | None = None
+    list_date: Any = None
+
+
 class DailyBarManager:
+    COVERAGE_TOLERANCE_DAYS = 7
+
     def __init__(
         self,
         *,
@@ -41,43 +55,15 @@ class DailyBarManager:
         *,
         symbols: list[str] | None = None,
         top: int | None = None,
+        max_concurrency: int = 8,
     ) -> DailyRefreshReport:
+        if max_concurrency <= 0:
+            raise ValueError('max_concurrency must be a positive integer')
+
         metadata = self._load_metadata(symbols=symbols, top=top)
-        report = DailyRefreshReport()
-
-        with tqdm(
-            total=len(metadata),
-            desc='AKShare daily bars',
-            unit='stock',
-            disable=not self.show_progress,
-        ) as progress:
-            for row in metadata.itertuples(index=False):
-                code = str(row.code).zfill(6)
-                start_date = self.calculate_start_date(row.list_date, today=self.today)
-                if start_date is None:
-                    report.skipped_codes.append(code)
-                    print(f'[WARN] skip {code}: invalid list_date={row.list_date!r}')
-                    progress.update(1)
-                    continue
-
-                try:
-                    df = self.provider.fetch_daily_bars(
-                        code,
-                        start_date=start_date,
-                        end_date=self.today,
-                    )
-                except Exception as exc:
-                    report.failed_codes.append(code)
-                    print(f'[ERROR] fetch {code} failed: {exc}')
-                    progress.update(1)
-                    continue
-
-                output_path = self._output_path(code)
-                df.to_parquet(output_path, index=False)
-                report.saved_paths.append(output_path)
-                progress.update(1)
-                progress.set_postfix(saved=len(report.saved_paths))
-
+        report = asyncio.run(
+            self._refresh_async(metadata=metadata, max_concurrency=max_concurrency)
+        )
         print(
             '[INFO] daily refresh: '
             f'saved={len(report.saved_paths)}, '
@@ -85,6 +71,101 @@ class DailyBarManager:
             f'failed={len(report.failed_codes)}'
         )
         return report
+
+    async def _refresh_async(
+        self,
+        *,
+        metadata: pd.DataFrame,
+        max_concurrency: int,
+    ) -> DailyRefreshReport:
+        report = DailyRefreshReport()
+        semaphore = asyncio.Semaphore(max_concurrency)
+        results: list[_DailyTaskResult] = []
+
+        with tqdm(
+            total=len(metadata),
+            desc='AKShare daily bars',
+            unit='stock',
+            disable=not self.show_progress,
+        ) as progress:
+            tasks = [
+                self._refresh_one(row=row, order=order, semaphore=semaphore)
+                for order, row in enumerate(metadata.itertuples(index=False))
+            ]
+            for task in asyncio.as_completed(tasks):
+                result = await task
+                results.append(result)
+                if result.status == 'skipped':
+                    print(f'[WARN] skip {result.code}: invalid list_date={result.list_date!r}')
+                elif result.status == 'failed':
+                    print(f'[ERROR] fetch {result.code} failed: {result.error}')
+                progress.update(1)
+                saved_count = sum(item.status == 'saved' for item in results)
+                progress.set_postfix(saved=saved_count)
+
+        ordered_results = sorted(results, key=lambda item: item.order)
+        report.saved_paths = [
+            result.output_path
+            for result in ordered_results
+            if result.status == 'saved' and result.output_path is not None
+        ]
+        report.skipped_codes = [
+            result.code for result in ordered_results if result.status == 'skipped'
+        ]
+        report.failed_codes = [
+            result.code for result in ordered_results if result.status == 'failed'
+        ]
+        return report
+
+    async def _refresh_one(
+        self,
+        *,
+        row,
+        order: int,
+        semaphore: asyncio.Semaphore,
+    ) -> _DailyTaskResult:
+        code = str(row.code).zfill(6)
+        start_date = self.calculate_start_date(row.list_date, today=self.today)
+        if start_date is None:
+            return _DailyTaskResult(
+                order=order,
+                code=code,
+                status='skipped',
+                list_date=row.list_date,
+            )
+
+        async with semaphore:
+            try:
+                df = await asyncio.to_thread(
+                    self.provider.fetch_daily_bars,
+                    code,
+                    start_date=start_date,
+                    end_date=self.today,
+                )
+                coverage_error = self._coverage_error(
+                    df,
+                    start_date=start_date,
+                    end_date=self.today,
+                )
+                if coverage_error is not None:
+                    raise ValueError(coverage_error)
+
+                output_path = self._output_path(code)
+                await asyncio.to_thread(df.to_parquet, output_path, index=False)
+            except Exception as exc:
+                return _DailyTaskResult(
+                    order=order,
+                    code=code,
+                    status='failed',
+                    error=exc,
+                )
+
+        return _DailyTaskResult(
+            order=order,
+            code=code,
+            status='saved',
+            output_path=output_path,
+        )
 
     def _load_metadata(
         self,
@@ -118,6 +199,44 @@ class DailyBarManager:
         five_year_start = (pd.Timestamp(current_date) - pd.DateOffset(years=5)).date()
         actual_list_date = parsed_list_date.date()
         return max(five_year_start, actual_list_date)
+
+    @classmethod
+    def _coverage_error(
+        cls,
+        df: pd.DataFrame,
+        *,
+        start_date: date,
+        end_date: date,
+    ) -> str | None:
+        if df.empty:
+            return 'daily bars are empty'
+
+        if 'date' not in df.columns:
+            return 'daily bars missing date column'
+
+        parsed_dates = pd.to_datetime(df['date'], format='%Y-%m-%d', errors='coerce')
+        valid_dates = parsed_dates.dropna()
+        if valid_dates.empty:
+            return 'daily bars contain no valid dates'
+
+        first_date = valid_dates.min().date()
+        last_date = valid_dates.max().date()
+        first_acceptable_date = start_date + timedelta(days=cls.COVERAGE_TOLERANCE_DAYS)
+        last_acceptable_date = end_date - timedelta(days=cls.COVERAGE_TOLERANCE_DAYS)
+
+        if first_date > first_acceptable_date:
+            return (
+                'daily bars start too late: '
+                f'first_date={first_date}, expected_on_or_before={first_acceptable_date}'
+            )
+
+        if last_date < last_acceptable_date:
+            return (
+                'daily bars end too early: '
+                f'last_date={last_date}, expected_on_or_after={last_acceptable_date}'
+            )
+
+        return None
 
     def _output_path(self, code: str) -> Path:
         return self.data_dir / f'{code}.parquet'

@@ -1,4 +1,5 @@
 from datetime import date
+import time
 
 import pandas as pd
 import pytest
@@ -30,9 +31,82 @@ class FakeDailyBarProvider:
                     'pct_change': 0.0,
                     'change': 0.0,
                     'turnover': 0.0,
-                }
+                },
+                {
+                    'code': code,
+                    'date': end_date.strftime('%Y-%m-%d'),
+                    'open': 1.0,
+                    'high': 1.0,
+                    'low': 1.0,
+                    'close': 1.0,
+                    'volume': 1.0,
+                    'amount': 1.0,
+                    'amplitude': 0.0,
+                    'pct_change': 0.0,
+                    'change': 0.0,
+                    'turnover': 0.0,
+                },
             ]
         )
+
+
+class TrackingDailyBarProvider(FakeDailyBarProvider):
+    def __init__(self, *, sleep_seconds: float = 0.01):
+        super().__init__()
+        self.active_calls = 0
+        self.max_active_calls = 0
+        self.sleep_seconds = sleep_seconds
+
+    def fetch_daily_bars(self, code, start_date, end_date):
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        try:
+            time.sleep(self.sleep_seconds)
+            return super().fetch_daily_bars(code, start_date, end_date)
+        finally:
+            self.active_calls -= 1
+
+
+class FailingDailyBarProvider(FakeDailyBarProvider):
+    def __init__(self, failed_code: str):
+        super().__init__()
+        self.failed_code = failed_code
+
+    def fetch_daily_bars(self, code, start_date, end_date):
+        if code == self.failed_code:
+            raise RuntimeError('boom')
+        return super().fetch_daily_bars(code, start_date, end_date)
+
+
+class IncompleteDailyBarProvider(FakeDailyBarProvider):
+    def __init__(self, mode: str):
+        super().__init__()
+        self.mode = mode
+
+    def fetch_daily_bars(self, code, start_date, end_date):
+        self.calls.append((code, start_date, end_date))
+        if self.mode == 'empty':
+            return pd.DataFrame(columns=['code', 'date'])
+        if self.mode == 'missing_date':
+            return pd.DataFrame([{'code': code, 'close': 1.0}])
+        if self.mode == 'invalid_date':
+            return pd.DataFrame([{'code': code, 'date': 'bad-date'}])
+        if self.mode == 'late_start':
+            return pd.DataFrame(
+                [
+                    {'code': code, 'date': '2021-06-24'},
+                    {'code': code, 'date': end_date.strftime('%Y-%m-%d')},
+                ]
+            )
+        if self.mode == 'early_end':
+            return pd.DataFrame(
+                [
+                    {'code': code, 'date': start_date.strftime('%Y-%m-%d')},
+                    {'code': code, 'date': '2026-06-08'},
+                ]
+            )
+
+        raise ValueError(f'unsupported incomplete mode: {self.mode}')
 
 
 def test_calculate_start_date_uses_five_year_window_for_old_listing():
@@ -165,7 +239,7 @@ def test_daily_bar_manager_refresh_top_limits_sorted_metadata(tmp_path):
     report = manager.refresh(top=2)
 
     assert [path.name for path in report.saved_paths] == ['000001.parquet', '300750.parquet']
-    assert [call[0] for call in provider.calls] == ['000001', '300750']
+    assert sorted(call[0] for call in provider.calls) == ['000001', '300750']
     assert not (daily_dir / '600519.parquet').exists()
 
 
@@ -184,3 +258,87 @@ def test_daily_bar_manager_refresh_rejects_invalid_top(tmp_path):
 
     with pytest.raises(ValueError, match='top must be a positive integer'):
         manager.refresh(top=0)
+
+
+def test_daily_bar_manager_refresh_limits_max_concurrency(tmp_path):
+    metadata_dir = tmp_path / 'metadata'
+    daily_dir = tmp_path / 'daily'
+    _write_metadata(metadata_dir)
+
+    provider = TrackingDailyBarProvider()
+    manager = DailyBarManager(
+        data_dir=daily_dir,
+        metadata_dir=metadata_dir,
+        provider=provider,
+        today=date(2026, 6, 16),
+        show_progress=False,
+    )
+
+    report = manager.refresh(max_concurrency=2)
+
+    assert len(report.saved_paths) == 3
+    assert provider.max_active_calls <= 2
+
+
+def test_daily_bar_manager_refresh_continues_after_symbol_failure(tmp_path):
+    metadata_dir = tmp_path / 'metadata'
+    daily_dir = tmp_path / 'daily'
+    _write_metadata(metadata_dir)
+
+    provider = FailingDailyBarProvider(failed_code='300750')
+    manager = DailyBarManager(
+        data_dir=daily_dir,
+        metadata_dir=metadata_dir,
+        provider=provider,
+        today=date(2026, 6, 16),
+        show_progress=False,
+    )
+
+    report = manager.refresh(max_concurrency=2)
+
+    assert report.failed_codes == ['300750']
+    assert [path.name for path in report.saved_paths] == ['000001.parquet', '600519.parquet']
+    assert (daily_dir / '000001.parquet').exists()
+    assert (daily_dir / '600519.parquet').exists()
+    assert not (daily_dir / '300750.parquet').exists()
+
+
+@pytest.mark.parametrize(
+    'mode',
+    ['empty', 'missing_date', 'invalid_date', 'late_start', 'early_end'],
+)
+def test_daily_bar_manager_refresh_fails_incomplete_data_without_writing(tmp_path, mode):
+    metadata_dir = tmp_path / 'metadata'
+    daily_dir = tmp_path / 'daily'
+    _write_metadata(metadata_dir)
+
+    manager = DailyBarManager(
+        data_dir=daily_dir,
+        metadata_dir=metadata_dir,
+        provider=IncompleteDailyBarProvider(mode),
+        today=date(2026, 6, 16),
+        show_progress=False,
+    )
+
+    report = manager.refresh(symbols=['600519'])
+
+    assert report.saved_paths == []
+    assert report.failed_codes == ['600519']
+    assert not (daily_dir / '600519.parquet').exists()
+
+
+def test_daily_bar_manager_refresh_rejects_invalid_max_concurrency(tmp_path):
+    metadata_dir = tmp_path / 'metadata'
+    daily_dir = tmp_path / 'daily'
+    _write_metadata(metadata_dir)
+
+    manager = DailyBarManager(
+        data_dir=daily_dir,
+        metadata_dir=metadata_dir,
+        provider=FakeDailyBarProvider(),
+        today=date(2026, 6, 16),
+        show_progress=False,
+    )
+
+    with pytest.raises(ValueError, match='max_concurrency must be a positive integer'):
+        manager.refresh(max_concurrency=0)

@@ -59,6 +59,12 @@ def main():
         type=int,
         help='fetch daily bars for the first N stocks after metadata filtering',
     )
+    parser.add_argument(
+        '--max-concurrency',
+        type=int,
+        default=8,
+        help='maximum concurrent daily-refresh fetches',
+    )
 
     args = parser.parse_args()
 
@@ -86,7 +92,11 @@ def main():
     elif args.command == 'daily-refresh':
         daily_manager = DailyBarManager(metadata_provider_name=args.metadata_provider)
         try:
-            daily_manager.refresh(symbols=parse_symbols(args.symbols), top=args.top)
+            daily_manager.refresh(
+                symbols=parse_symbols(args.symbols),
+                top=args.top,
+                max_concurrency=args.max_concurrency,
+            )
         except ValueError as exc:
             print(f'[FAIL] {exc}', file=sys.stderr)
             sys.exit(1)
