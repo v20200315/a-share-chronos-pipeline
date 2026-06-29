@@ -159,6 +159,12 @@ Each stock is saved as its own parquet file:
 data/daily/akshare/<code>.parquet
 ```
 
+Each run also writes a local JSON report with success, skipped, and failed counts:
+
+```text
+data/daily/akshare/audit/<timestamp>_daily_refresh.json
+```
+
 For each stock, the fetch window is:
 
 - `end_date`: today

@@ -1,4 +1,5 @@
 from datetime import date
+import json
 import time
 
 import pandas as pd
@@ -301,6 +302,36 @@ def test_daily_bar_manager_refresh_continues_after_symbol_failure(tmp_path):
     assert (daily_dir / '000001.parquet').exists()
     assert (daily_dir / '600519.parquet').exists()
     assert not (daily_dir / '300750.parquet').exists()
+
+
+def test_daily_bar_manager_writes_local_report(tmp_path):
+    metadata_dir = tmp_path / 'metadata'
+    daily_dir = tmp_path / 'daily'
+    _write_metadata(metadata_dir)
+
+    provider = FailingDailyBarProvider(failed_code='300750')
+    manager = DailyBarManager(
+        data_dir=daily_dir,
+        metadata_dir=metadata_dir,
+        provider=provider,
+        today=date(2026, 6, 16),
+        show_progress=False,
+    )
+
+    report = manager.refresh(symbols=['600519', '300750'])
+
+    assert report.report_path is not None
+    assert report.report_path.exists()
+    assert report.report_path.parent == daily_dir / 'audit'
+
+    payload = json.loads(report.report_path.read_text(encoding='utf-8'))
+    assert payload['saved_count'] == 1
+    assert payload['skipped_count'] == 0
+    assert payload['failed_count'] == 1
+    assert payload['failed_codes'] == ['300750']
+    assert payload['failed_reasons'] == {'300750': 'boom'}
+    assert payload['saved_paths'] == [str(daily_dir / '600519.parquet')]
+    assert payload['report_path'] == str(report.report_path)
 
 
 @pytest.mark.parametrize(

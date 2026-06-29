@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,22 @@ class DailyRefreshReport:
     saved_paths: list[Path] = field(default_factory=list)
     skipped_codes: list[str] = field(default_factory=list)
     failed_codes: list[str] = field(default_factory=list)
+    skipped_reasons: dict[str, str] = field(default_factory=dict)
+    failed_reasons: dict[str, str] = field(default_factory=dict)
+    report_path: Path | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            'saved_count': len(self.saved_paths),
+            'skipped_count': len(self.skipped_codes),
+            'failed_count': len(self.failed_codes),
+            'saved_paths': [str(path) for path in self.saved_paths],
+            'skipped_codes': self.skipped_codes,
+            'failed_codes': self.failed_codes,
+            'skipped_reasons': self.skipped_reasons,
+            'failed_reasons': self.failed_reasons,
+            'report_path': str(self.report_path) if self.report_path is not None else None,
+        }
 
 
 @dataclass
@@ -45,6 +62,7 @@ class DailyBarManager:
     ):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.audit_dir = self.data_dir / 'audit'
         self.metadata_path = Path(metadata_dir) / f'stock_basic_{metadata_provider_name}.parquet'
         self.provider = provider or AkshareDailyBarProvider()
         self.today = today or date.today()
@@ -61,6 +79,10 @@ class DailyBarManager:
             raise ValueError('max_concurrency must be a positive integer')
 
         metadata = self._load_metadata(symbols=symbols, top=top)
+        print(
+            '[INFO] daily refresh start: '
+            f'stocks={len(metadata)}, max_concurrency={max_concurrency}'
+        )
         report = asyncio.run(
             self._refresh_async(metadata=metadata, max_concurrency=max_concurrency)
         )
@@ -70,6 +92,8 @@ class DailyBarManager:
             f'skipped={len(report.skipped_codes)}, '
             f'failed={len(report.failed_codes)}'
         )
+        report.report_path = self._write_report(report)
+        print(f'[INFO] daily report -> {report.report_path}')
         return report
 
     async def _refresh_async(
@@ -115,6 +139,16 @@ class DailyBarManager:
         report.failed_codes = [
             result.code for result in ordered_results if result.status == 'failed'
         ]
+        report.skipped_reasons = {
+            result.code: f'invalid list_date={result.list_date!r}'
+            for result in ordered_results
+            if result.status == 'skipped'
+        }
+        report.failed_reasons = {
+            result.code: str(result.error)
+            for result in ordered_results
+            if result.status == 'failed' and result.error is not None
+        }
         return report
 
     async def _refresh_one(
@@ -240,3 +274,18 @@ class DailyBarManager:
 
     def _output_path(self, code: str) -> Path:
         return self.data_dir / f'{code}.parquet'
+
+    def _write_report(self, report: DailyRefreshReport) -> Path:
+        self.audit_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%dT%H%M%S')
+        report_path = self.audit_dir / f'{timestamp}_daily_refresh.json'
+        report.report_path = report_path
+        payload = {
+            'timestamp': datetime.now().isoformat(timespec='seconds'),
+            'metadata_path': str(self.metadata_path),
+            'data_dir': str(self.data_dir),
+            'today': self.today.isoformat(),
+            **report.to_dict(),
+        }
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        return report_path
