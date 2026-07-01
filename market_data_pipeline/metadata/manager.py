@@ -24,8 +24,10 @@ class MetadataManager:
         audit_dir: str | Path | None = None,
     ):
         self.provider = provider or AkshareMetadataProvider()
-        self.data_dir = Path(data_dir) if data_dir is not None else metadata_provider_dir(
-            self.provider.provider_name
+        self.data_dir = (
+            Path(data_dir)
+            if data_dir is not None
+            else metadata_provider_dir(self.provider.provider_name)
         )
         self.data_dir.mkdir(parents=True, exist_ok=True)
 

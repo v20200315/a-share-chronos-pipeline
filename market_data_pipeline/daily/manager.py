@@ -63,8 +63,10 @@ class DailyBarManager:
         show_progress: bool = True,
     ):
         self.provider = provider or AkshareDailyBarProvider()
-        self.data_dir = Path(data_dir) if data_dir is not None else daily_bars_dir(
-            provider_name=self.provider.provider_name
+        self.data_dir = (
+            Path(data_dir)
+            if data_dir is not None
+            else daily_bars_dir(provider_name=self.provider.provider_name)
         )
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.audit_dir = (
