@@ -1,9 +1,9 @@
 import pandas as pd
 import pytest
 
-from chronos_pipeline.metadata.eastmoney_provider import EastMoneyMetadataProvider
-from chronos_pipeline.metadata.exchange import infer_exchange
-from chronos_pipeline.metadata.validator import (
+from market_data_pipeline.metadata.eastmoney_provider import EastMoneyMetadataProvider
+from market_data_pipeline.metadata.exchange import infer_exchange
+from market_data_pipeline.metadata.validator import (
     MetadataValidationError,
     MetadataValidator,
 )
@@ -272,14 +272,14 @@ def test_clean_stock_basic_removes_warning_rows_with_strict():
 
 
 def test_manager_refresh_preserves_fetched_rows_without_validation(tmp_path, monkeypatch):
-    from chronos_pipeline.metadata.manager import MetadataManager
+    from market_data_pipeline.metadata.manager import MetadataManager
 
     monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
     monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
 
     data_dir = tmp_path / 'metadata'
     data_dir.mkdir()
-    parquet_path = data_dir / 'stock_basic_akshare.parquet'
+    parquet_path = data_dir / 'stock_basic.parquet'
     previous_df = _sample_df()
     previous_df.to_parquet(parquet_path, index=False)
 
@@ -301,14 +301,14 @@ def test_manager_refresh_preserves_fetched_rows_without_validation(tmp_path, mon
 
 
 def test_manager_clean_removes_errors_from_parquet(tmp_path, monkeypatch, capsys):
-    from chronos_pipeline.metadata.manager import MetadataManager
+    from market_data_pipeline.metadata.manager import MetadataManager
 
     monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
     monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
 
     data_dir = tmp_path / 'metadata'
     data_dir.mkdir()
-    parquet_path = data_dir / 'stock_basic_akshare.parquet'
+    parquet_path = data_dir / 'stock_basic.parquet'
     df = _sample_df()
     df.loc[0, 'list_date'] = '2099-01-01'
     df.to_parquet(parquet_path, index=False)
@@ -326,14 +326,14 @@ def test_manager_clean_removes_errors_from_parquet(tmp_path, monkeypatch, capsys
 
 
 def test_manager_clean_strict_removes_warning_rows_from_parquet(tmp_path, monkeypatch):
-    from chronos_pipeline.metadata.manager import MetadataManager
+    from market_data_pipeline.metadata.manager import MetadataManager
 
     monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
     monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
 
     data_dir = tmp_path / 'metadata'
     data_dir.mkdir()
-    parquet_path = data_dir / 'stock_basic_akshare.parquet'
+    parquet_path = data_dir / 'stock_basic.parquet'
     df = _sample_df()
     df.loc[0, 'list_date'] = pd.NA
     df.to_parquet(parquet_path, index=False)
@@ -349,14 +349,14 @@ def test_manager_clean_strict_removes_warning_rows_from_parquet(tmp_path, monkey
 
 
 def test_manager_clean_dry_run_does_not_modify_parquet(tmp_path, monkeypatch):
-    from chronos_pipeline.metadata.manager import MetadataManager
+    from market_data_pipeline.metadata.manager import MetadataManager
 
     monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
     monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
 
     data_dir = tmp_path / 'metadata'
     data_dir.mkdir()
-    parquet_path = data_dir / 'stock_basic_akshare.parquet'
+    parquet_path = data_dir / 'stock_basic.parquet'
     df = _sample_df()
     df.loc[0, 'list_date'] = '2099-01-01'
     df.to_parquet(parquet_path, index=False)
@@ -371,14 +371,14 @@ def test_manager_clean_dry_run_does_not_modify_parquet(tmp_path, monkeypatch):
 
 
 def test_manager_validate_fail_closed(tmp_path, monkeypatch):
-    from chronos_pipeline.metadata.manager import MetadataManager
+    from market_data_pipeline.metadata.manager import MetadataManager
 
     monkeypatch.setattr(MetadataValidator, 'MIN_ROWS', 1)
     monkeypatch.setattr(MetadataValidator, 'MAX_ROWS', 10)
 
     data_dir = tmp_path / 'metadata'
     data_dir.mkdir()
-    parquet_path = data_dir / 'stock_basic_akshare.parquet'
+    parquet_path = data_dir / 'stock_basic.parquet'
     previous_df = _sample_df()
     previous_df.to_parquet(parquet_path, index=False)
 

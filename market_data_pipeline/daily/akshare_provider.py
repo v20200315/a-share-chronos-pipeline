@@ -6,8 +6,7 @@ from datetime import date
 import akshare as ak
 import pandas as pd
 
-from chronos_pipeline.models import DailyBar
-
+from ..models import DailyBar
 from .provider import DailyBarProvider
 
 

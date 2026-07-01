@@ -1,12 +1,13 @@
 import argparse
 import sys
 
-from chronos_pipeline.daily.manager import DailyBarManager
-from chronos_pipeline.metadata.akshare_provider import AkshareMetadataProvider
-from chronos_pipeline.metadata.eastmoney_provider import EastMoneyMetadataProvider
-from chronos_pipeline.metadata.manager import MetadataManager
-from chronos_pipeline.metadata.provider import MetadataProvider
-from chronos_pipeline.metadata.validator import MetadataValidationError
+from market_data_pipeline.daily.manager import DailyBarManager
+from market_data_pipeline.metadata.akshare_provider import AkshareMetadataProvider
+from market_data_pipeline.metadata.eastmoney_provider import EastMoneyMetadataProvider
+from market_data_pipeline.metadata.manager import MetadataManager
+from market_data_pipeline.metadata.provider import MetadataProvider
+from market_data_pipeline.metadata.validator import MetadataValidationError
+from market_data_pipeline.snapshot import MarketDataSnapshotPublisher
 
 
 def create_provider(name: str) -> MetadataProvider:
@@ -28,7 +29,8 @@ def parse_symbols(value: str | None) -> list[str] | None:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        'command', choices=['refresh', 'validate', 'clean', 'load', 'daily-refresh']
+        'command',
+        choices=['refresh', 'validate', 'clean', 'load', 'daily-refresh', 'publish-snapshot'],
     )
     parser.add_argument(
         '--provider',
@@ -67,6 +69,10 @@ def main():
         default=8,
         help='maximum concurrent daily-refresh fetches',
     )
+    parser.add_argument(
+        '--snapshot-name',
+        help='snapshot directory name used by publish-snapshot; defaults to a timestamp',
+    )
 
     args = parser.parse_args()
 
@@ -102,6 +108,18 @@ def main():
         except ValueError as exc:
             print(f'[FAIL] {exc}', file=sys.stderr)
             sys.exit(1)
+
+    elif args.command == 'publish-snapshot':
+        publisher = MarketDataSnapshotPublisher(metadata_provider_name=args.metadata_provider)
+        try:
+            result = publisher.publish(snapshot_name=args.snapshot_name)
+        except FileNotFoundError as exc:
+            print(f'[FAIL] {exc}', file=sys.stderr)
+            sys.exit(1)
+        print(f'[OK] snapshot -> {result.snapshot_dir}')
+        print(f'[INFO] manifest -> {result.manifest_path}')
+        if result.latest_dir is not None:
+            print(f'[OK] latest snapshot -> {result.latest_dir}')
 
 
 if __name__ == '__main__':

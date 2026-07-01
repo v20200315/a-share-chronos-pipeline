@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from market_data_pipeline.paths import metadata_audit_dir, metadata_provider_dir
+
 from .akshare_provider import AkshareMetadataProvider
 from .akshare_validator import AkshareMetadataValidator
 from .eastmoney_validator import EastMoneyMetadataValidator
@@ -15,13 +17,24 @@ VALIDATORS: dict[str, type[MetadataValidator]] = {
 
 
 class MetadataManager:
-    def __init__(self, data_dir='data/metadata', provider: MetadataProvider | None = None):
-        self.data_dir = Path(data_dir)
+    def __init__(
+        self,
+        data_dir: str | Path | None = None,
+        provider: MetadataProvider | None = None,
+        audit_dir: str | Path | None = None,
+    ):
+        self.provider = provider or AkshareMetadataProvider()
+        self.data_dir = Path(data_dir) if data_dir is not None else metadata_provider_dir(
+            self.provider.provider_name
+        )
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-        self.provider = provider or AkshareMetadataProvider()
-        self.file_path = self.data_dir / f'stock_basic_{self.provider.provider_name}.parquet'
-        self.audit_dir = self.data_dir / 'audit' / self.provider.provider_name
+        self.file_path = self.data_dir / 'stock_basic.parquet'
+        self.audit_dir = (
+            Path(audit_dir)
+            if audit_dir is not None
+            else metadata_audit_dir(self.provider.provider_name)
+        )
 
     def refresh(self):
         """Fetch metadata and write it without validation."""

@@ -5,8 +5,8 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from chronos_pipeline.daily.akshare_provider import AkshareDailyBarProvider
-from chronos_pipeline.daily.manager import DailyBarManager
+from market_data_pipeline.daily.akshare_provider import AkshareDailyBarProvider
+from market_data_pipeline.daily.manager import DailyBarManager
 
 
 class FakeDailyBarProvider:
@@ -194,7 +194,7 @@ def _write_metadata(metadata_dir):
                 'list_date': '2018-06-11',
             },
         ]
-    ).to_parquet(metadata_dir / 'stock_basic_akshare.parquet', index=False)
+    ).to_parquet(metadata_dir / 'stock_basic.parquet', index=False)
 
 
 def test_daily_bar_manager_writes_one_parquet_per_symbol(tmp_path):
@@ -206,6 +206,7 @@ def test_daily_bar_manager_writes_one_parquet_per_symbol(tmp_path):
     manager = DailyBarManager(
         data_dir=daily_dir,
         metadata_dir=metadata_dir,
+        audit_dir=daily_dir / 'audit',
         provider=provider,
         today=date(2026, 6, 16),
         show_progress=False,
@@ -232,6 +233,7 @@ def test_daily_bar_manager_refresh_top_limits_sorted_metadata(tmp_path):
     manager = DailyBarManager(
         data_dir=daily_dir,
         metadata_dir=metadata_dir,
+        audit_dir=daily_dir / 'audit',
         provider=provider,
         today=date(2026, 6, 16),
         show_progress=False,
@@ -252,6 +254,7 @@ def test_daily_bar_manager_refresh_rejects_invalid_top(tmp_path):
     manager = DailyBarManager(
         data_dir=daily_dir,
         metadata_dir=metadata_dir,
+        audit_dir=daily_dir / 'audit',
         provider=FakeDailyBarProvider(),
         today=date(2026, 6, 16),
         show_progress=False,
@@ -270,6 +273,7 @@ def test_daily_bar_manager_refresh_limits_max_concurrency(tmp_path):
     manager = DailyBarManager(
         data_dir=daily_dir,
         metadata_dir=metadata_dir,
+        audit_dir=daily_dir / 'audit',
         provider=provider,
         today=date(2026, 6, 16),
         show_progress=False,
@@ -290,6 +294,7 @@ def test_daily_bar_manager_refresh_continues_after_symbol_failure(tmp_path):
     manager = DailyBarManager(
         data_dir=daily_dir,
         metadata_dir=metadata_dir,
+        audit_dir=daily_dir / 'audit',
         provider=provider,
         today=date(2026, 6, 16),
         show_progress=False,
@@ -313,6 +318,7 @@ def test_daily_bar_manager_writes_local_report(tmp_path):
     manager = DailyBarManager(
         data_dir=daily_dir,
         metadata_dir=metadata_dir,
+        audit_dir=daily_dir / 'audit',
         provider=provider,
         today=date(2026, 6, 16),
         show_progress=False,
@@ -346,6 +352,7 @@ def test_daily_bar_manager_refresh_fails_incomplete_data_without_writing(tmp_pat
     manager = DailyBarManager(
         data_dir=daily_dir,
         metadata_dir=metadata_dir,
+        audit_dir=daily_dir / 'audit',
         provider=IncompleteDailyBarProvider(mode),
         today=date(2026, 6, 16),
         show_progress=False,
@@ -366,6 +373,7 @@ def test_daily_bar_manager_refresh_rejects_invalid_max_concurrency(tmp_path):
     manager = DailyBarManager(
         data_dir=daily_dir,
         metadata_dir=metadata_dir,
+        audit_dir=daily_dir / 'audit',
         provider=FakeDailyBarProvider(),
         today=date(2026, 6, 16),
         show_progress=False,

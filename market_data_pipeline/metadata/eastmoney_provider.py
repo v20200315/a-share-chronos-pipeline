@@ -11,8 +11,7 @@ import httpx
 import pandas as pd
 from tqdm.auto import tqdm
 
-from chronos_pipeline.models import StockBasic
-
+from ..models import StockBasic
 from .exchange import infer_exchange
 from .provider import MetadataProvider
 

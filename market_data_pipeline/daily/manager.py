@@ -10,6 +10,8 @@ from typing import Any
 import pandas as pd
 from tqdm.auto import tqdm
 
+from market_data_pipeline.paths import daily_bars_audit_dir, daily_bars_dir, metadata_file_path
+
 from .akshare_provider import AkshareDailyBarProvider
 from .provider import DailyBarProvider
 
@@ -52,18 +54,29 @@ class DailyBarManager:
     def __init__(
         self,
         *,
-        data_dir='data/daily/akshare',
-        metadata_dir='data/metadata',
+        data_dir: str | Path | None = None,
+        metadata_dir: str | Path | None = None,
         metadata_provider_name: str = 'akshare',
+        audit_dir: str | Path | None = None,
         provider: DailyBarProvider | None = None,
         today: date | None = None,
         show_progress: bool = True,
     ):
-        self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.audit_dir = self.data_dir / 'audit'
-        self.metadata_path = Path(metadata_dir) / f'stock_basic_{metadata_provider_name}.parquet'
         self.provider = provider or AkshareDailyBarProvider()
+        self.data_dir = Path(data_dir) if data_dir is not None else daily_bars_dir(
+            provider_name=self.provider.provider_name
+        )
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.audit_dir = (
+            Path(audit_dir)
+            if audit_dir is not None
+            else daily_bars_audit_dir(self.provider.provider_name)
+        )
+        self.metadata_path = (
+            Path(metadata_dir) / 'stock_basic.parquet'
+            if metadata_dir is not None
+            else metadata_file_path(metadata_provider_name)
+        )
         self.today = today or date.today()
         self.show_progress = show_progress
 
