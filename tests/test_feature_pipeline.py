@@ -101,7 +101,10 @@ def test_feature_pipeline_production_code_does_not_import_market_data_pipeline()
                 names = [node.module or '']
             else:
                 continue
-            if any(name == 'market_data_pipeline' or name.startswith('market_data_pipeline.') for name in names):
+            if any(
+                name == 'market_data_pipeline' or name.startswith('market_data_pipeline.')
+                for name in names
+            ):
                 offenders.append(str(feature_file))
 
     assert offenders == []

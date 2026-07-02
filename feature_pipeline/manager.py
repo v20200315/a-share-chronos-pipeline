@@ -45,10 +45,7 @@ class FeatureManager:
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         snapshot = None if self.daily_bars_dir is not None else load_snapshot(self.snapshot_dir)
-        saved_paths = [
-            self._compute_one(symbol=symbol, snapshot=snapshot)
-            for symbol in symbols
-        ]
+        saved_paths = [self._compute_one(symbol=symbol, snapshot=snapshot) for symbol in symbols]
         return FeatureComputeResult(saved_paths=saved_paths)
 
     def _compute_one(

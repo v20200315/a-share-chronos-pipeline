@@ -43,7 +43,9 @@ def load_daily_bars(
     snapshot: MarketDataSnapshot | None = None,
     daily_bars_dir: str | Path | None = None,
 ) -> pd.DataFrame:
-    source_dir = Path(daily_bars_dir) if daily_bars_dir is not None else _snapshot_daily_dir(snapshot)
+    source_dir = (
+        Path(daily_bars_dir) if daily_bars_dir is not None else _snapshot_daily_dir(snapshot)
+    )
     symbol = str(code).zfill(6)
     daily_path = source_dir / f'{symbol}.parquet'
     if not daily_path.exists():
