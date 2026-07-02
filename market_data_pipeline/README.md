@@ -9,6 +9,14 @@ It currently supports stock metadata ingestion, metadata validation and cleanup,
 
 Run the implemented market data CLI from the repository root with `python -m market_data_pipeline.cli`.
 
+### Frontend
+
+Run the Streamlit frontend from the repository root:
+
+```bash
+streamlit run market_data_pipeline/frontend/app.py
+```
+
 ### Data Layout
 
 The pipeline owns raw market data outputs under `data/market_data/`.
@@ -253,6 +261,14 @@ The snapshot contains `manifest.json`, `stock_basic.parquet`, and `daily_bars/<c
 它目前支持股票元数据采集、元数据校验与清理、日线 K 线刷新、失败股票重试，以及行情数据快照发布。
 
 在仓库根目录运行已实现的行情数据 CLI：`python -m market_data_pipeline.cli`。
+
+### 前端
+
+在仓库根目录运行 Streamlit 前端：
+
+```bash
+streamlit run market_data_pipeline/frontend/app.py
+```
 
 ### 数据目录结构
 
