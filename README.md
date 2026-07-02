@@ -21,6 +21,35 @@ The full pipeline is:
 Market Data -> Feature -> Model -> Backtest
 ```
 
+### Environment
+
+The Conda environment is defined in `environment.yml` and is named `chronos_env`.
+
+Create the environment for the first time:
+
+```bash
+conda env create -f environment.yml
+conda activate chronos_env
+```
+
+If you add a dependency to `environment.yml`, update the existing environment:
+
+```bash
+conda env update -n chronos_env -f environment.yml
+```
+
+Use `--prune` only when you want Conda to remove packages that are no longer listed in `environment.yml`:
+
+```bash
+conda env update -n chronos_env -f environment.yml --prune
+```
+
+After adding a package such as Streamlit, verify it from `chronos_env`:
+
+```bash
+python -c "import streamlit; print(streamlit.__version__)"
+```
+
 ### Pipeline Architecture
 
 ```text
@@ -215,6 +244,35 @@ Use these names for Python imports and `python -m` commands. In human-facing doc
 
 ```text
 Market Data -> Feature -> Model -> Backtest
+```
+
+### 环境
+
+Conda 环境由 `environment.yml` 定义，环境名是 `chronos_env`。
+
+第一次创建环境：
+
+```bash
+conda env create -f environment.yml
+conda activate chronos_env
+```
+
+如果在 `environment.yml` 中新增依赖，更新已有环境：
+
+```bash
+conda env update -n chronos_env -f environment.yml
+```
+
+只有当你希望 Conda 删除 `environment.yml` 中已经不再列出的包时，才使用 `--prune`：
+
+```bash
+conda env update -n chronos_env -f environment.yml --prune
+```
+
+新增 Streamlit 这类包之后，可以在 `chronos_env` 中验证：
+
+```bash
+python -c "import streamlit; print(streamlit.__version__)"
 ```
 
 ### 流水线架构
