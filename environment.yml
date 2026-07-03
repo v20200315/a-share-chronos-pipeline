@@ -5,6 +5,7 @@ channels:
 dependencies:
   - python=3.10
   - numpy
+  - pandas
   - pydantic=2
   - pyarrow
   - ruff
