@@ -11,9 +11,9 @@ from factor_pipeline.factors.technical import compute_technical_factors
 from factor_pipeline.factors.volatility import compute_volatility_factors
 from factor_pipeline.factors.volume import compute_volume_factors
 from factor_pipeline.io.exporter import export_factor_dataset
-from factor_pipeline.io.loader import load_market_data
+from factor_pipeline.io.loader import load_market_data, load_snapshot
 from factor_pipeline.labels.label_generator import generate_labels
-from factor_pipeline.paths import FACTOR_OUTPUT_DIR, MARKET_DATA_INPUT_DIR
+from factor_pipeline.paths import FACTOR_OUTPUT_DIR, MARKET_DATA_SNAPSHOT_LATEST
 
 
 @dataclass(frozen=True)
@@ -30,16 +30,19 @@ class FactorEngine:
     def __init__(
         self,
         *,
-        input_dir: str | Path = MARKET_DATA_INPUT_DIR,
+        snapshot_dir: str | Path = MARKET_DATA_SNAPSHOT_LATEST,
+        daily_bars_dir: str | Path | None = None,
         output_dir: str | Path = FACTOR_OUTPUT_DIR,
     ) -> None:
         """Initialize the engine.
 
         Args:
-            input_dir: Directory containing market-data parquet files.
+            snapshot_dir: Market-data snapshot directory.
+            daily_bars_dir: Optional daily-bars directory override.
             output_dir: Directory that stores exported factor parquet files.
         """
-        self.input_dir = Path(input_dir)
+        self.snapshot_dir = Path(snapshot_dir)
+        self.daily_bars_dir = Path(daily_bars_dir) if daily_bars_dir is not None else None
         self.output_dir = Path(output_dir)
 
     def run(self, symbol: str) -> FactorEngineResult:
@@ -51,7 +54,12 @@ class FactorEngine:
         Returns:
             Metadata describing the exported factor dataset path.
         """
-        df = load_market_data(symbol, input_dir=self.input_dir)
+        snapshot = None if self.daily_bars_dir is not None else load_snapshot(self.snapshot_dir)
+        df = load_market_data(
+            symbol,
+            snapshot=snapshot,
+            daily_bars_dir=self.daily_bars_dir,
+        )
         df = clean(df)
         df = compute_technical_factors(df)
         df = compute_price_factors(df)

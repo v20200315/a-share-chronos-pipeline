@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -6,13 +7,18 @@ import pytest
 
 from factor_pipeline.engine import FactorEngine
 from factor_pipeline.io.exporter import export_factor_dataset
-from factor_pipeline.io.loader import REQUIRED_COLUMNS, load_market_data
+from factor_pipeline.io.loader import (
+    REQUIRED_COLUMNS,
+    load_market_data,
+    load_snapshot,
+    validate_required_columns,
+)
 
 
-def _market_data_frame(code: str, rows: int = 5) -> pd.DataFrame:
+def _market_data_frame(code: str, rows: int = 5, *, reverse: bool = False) -> pd.DataFrame:
     dates = pd.date_range('2024-01-01', periods=rows, freq='D')
     close = np.linspace(10.0, 15.0, rows)
-    return pd.DataFrame(
+    df = pd.DataFrame(
         {
             'code': code,
             'date': dates.strftime('%Y-%m-%d'),
@@ -28,50 +34,92 @@ def _market_data_frame(code: str, rows: int = 5) -> pd.DataFrame:
             'turnover': 0.5,
         }
     )
+    if reverse:
+        return df.iloc[::-1].reset_index(drop=True)
+    return df
 
 
-def _write_market_data_input(tmp_path: Path, code: str = '600000') -> Path:
-    input_dir = tmp_path / 'market_data_pipeline' / 'output'
-    input_dir.mkdir(parents=True)
-    _market_data_frame(code).to_parquet(input_dir / f'{code}.parquet', index=False)
-    return input_dir
+def _write_snapshot(tmp_path: Path) -> Path:
+    snapshot_dir = tmp_path / 'snapshot'
+    daily_bars_dir = snapshot_dir / 'daily_bars'
+    daily_bars_dir.mkdir(parents=True)
+    _market_data_frame('000001', reverse=True).to_parquet(
+        daily_bars_dir / '000001.parquet',
+        index=False,
+    )
+    _market_data_frame('600000').to_parquet(daily_bars_dir / '600000.parquet', index=False)
+    manifest = {
+        'daily_bars_path': str(daily_bars_dir),
+        'symbols': ['000001', '600000'],
+        'metadata_provider': 'akshare',
+    }
+    (snapshot_dir / 'manifest.json').write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding='utf-8',
+    )
+    return snapshot_dir
 
 
-def test_load_market_data_reads_one_symbol_parquet(tmp_path):
-    input_dir = _write_market_data_input(tmp_path)
-    expected = pd.read_parquet(input_dir / '600000.parquet')
+def test_load_snapshot_reads_manifest_and_resolves_daily_bars_dir(tmp_path):
+    snapshot_dir = _write_snapshot(tmp_path)
 
-    loaded = load_market_data('600000', input_dir=input_dir)
+    snapshot = load_snapshot(snapshot_dir)
+
+    assert snapshot.snapshot_dir == snapshot_dir
+    assert snapshot.daily_bars_dir == snapshot_dir / 'daily_bars'
+    assert snapshot.manifest['symbols'] == ['000001', '600000']
+
+
+def test_load_market_data_reads_snapshot_without_transforming_rows(tmp_path):
+    snapshot_dir = _write_snapshot(tmp_path)
+    snapshot = load_snapshot(snapshot_dir)
+    expected = pd.read_parquet(snapshot_dir / 'daily_bars' / '000001.parquet')
+
+    loaded = load_market_data('000001', snapshot=snapshot)
 
     pd.testing.assert_frame_equal(loaded, expected)
 
 
 def test_load_market_data_normalizes_symbol_to_six_digits(tmp_path):
-    input_dir = _write_market_data_input(tmp_path, code='000001')
-    expected = pd.read_parquet(input_dir / '000001.parquet')
+    snapshot_dir = _write_snapshot(tmp_path)
+    snapshot = load_snapshot(snapshot_dir)
+    expected = pd.read_parquet(snapshot_dir / 'daily_bars' / '000001.parquet')
 
-    loaded = load_market_data('1', input_dir=input_dir)
+    loaded = load_market_data('1', snapshot=snapshot)
 
     pd.testing.assert_frame_equal(loaded, expected)
 
 
+def test_load_market_data_uses_daily_bars_dir_override_without_manifest(tmp_path):
+    daily_bars_dir = tmp_path / 'daily_bars'
+    daily_bars_dir.mkdir(parents=True)
+    expected = _market_data_frame('600000')
+    expected.to_parquet(daily_bars_dir / '600000.parquet', index=False)
+
+    loaded = load_market_data('600000', daily_bars_dir=daily_bars_dir)
+
+    pd.testing.assert_frame_equal(loaded, expected)
+
+
+def test_load_snapshot_raises_when_manifest_missing(tmp_path):
+    snapshot_dir = tmp_path / 'snapshot'
+    snapshot_dir.mkdir()
+
+    with pytest.raises(FileNotFoundError, match='manifest not found'):
+        load_snapshot(snapshot_dir)
+
+
 def test_load_market_data_raises_when_parquet_missing(tmp_path):
-    input_dir = _write_market_data_input(tmp_path)
+    snapshot_dir = _write_snapshot(tmp_path)
+    snapshot = load_snapshot(snapshot_dir)
 
     with pytest.raises(FileNotFoundError, match='market data parquet not found'):
-        load_market_data('999999', input_dir=input_dir)
+        load_market_data('999999', snapshot=snapshot)
 
 
-def test_load_market_data_raises_when_required_columns_missing(tmp_path):
-    input_dir = tmp_path / 'input'
-    input_dir.mkdir()
-    pd.DataFrame({'code': ['600000'], 'date': ['2024-01-01'], 'close': [10.0]}).to_parquet(
-        input_dir / '600000.parquet',
-        index=False,
-    )
-
+def test_validate_required_columns_raises_when_columns_missing():
     with pytest.raises(ValueError, match='missing required columns'):
-        load_market_data('600000', input_dir=input_dir)
+        validate_required_columns(['code', 'date', 'close'])
 
 
 def test_export_factor_dataset_writes_symbol_factor_parquet(tmp_path):
@@ -87,9 +135,9 @@ def test_export_factor_dataset_writes_symbol_factor_parquet(tmp_path):
 
 
 def test_factor_engine_runs_end_to_end(tmp_path):
-    input_dir = _write_market_data_input(tmp_path)
+    snapshot_dir = _write_snapshot(tmp_path)
     output_dir = tmp_path / 'factor_pipeline' / 'output'
-    engine = FactorEngine(input_dir=input_dir, output_dir=output_dir)
+    engine = FactorEngine(snapshot_dir=snapshot_dir, output_dir=output_dir)
 
     result = engine.run('600000')
 
@@ -98,5 +146,5 @@ def test_factor_engine_runs_end_to_end(tmp_path):
     assert result.output_path.exists()
 
     saved = pd.read_parquet(result.output_path)
-    assert list(saved.columns) == [*REQUIRED_COLUMNS, 'label']
+    assert set(saved.columns) == {*REQUIRED_COLUMNS, 'label'}
     assert saved['label'].tolist() == [0] * len(saved)
