@@ -30,7 +30,7 @@ factor_pipeline/
 ├── __init__.py              # Package entry; exports FactorEngine, FactorEngineResult
 ├── paths.py                 # Default input/output path constants
 ├── engine.py                # Orchestrates all stages in order
-├── pipeline.py              # CLI entry point for one symbol
+├── pipeline.py              # CLI entry point (--input-dir, --output-dir)
 ├── README.md
 │
 ├── io/
@@ -82,7 +82,7 @@ factor_pipeline/
 | `dataset/scaler.py` | Scale features | Pass-through placeholder |
 | `dataset/splitter.py` | Split dataset | Pass-through placeholder; **not called by `engine.py` yet** |
 | `engine.py` | Pipeline orchestration | Calls every active stage sequentially for one symbol |
-| `pipeline.py` | Program entry point | Parses CLI args and runs `FactorEngine` |
+| `pipeline.py` | Program entry point | Parses `--input-dir` and `--output-dir`, runs `FactorEngine` for each parquet file |
 
 ### Input Contract
 
@@ -120,7 +120,7 @@ Current output columns = input market-data columns + `label`.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  pipeline.py  (CLI)                                             │
-│  python -m factor_pipeline.pipeline 600000                      │
+│  python -m factor_pipeline.pipeline --input-dir ... --output-dir ... │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -183,21 +183,16 @@ Current output columns = input market-data columns + `label`.
 ### Run
 
 ```bash
-# Default: read from data/market_data/snapshots/latest
-python -m factor_pipeline.pipeline 600000
+# Default: read from data/market_data/snapshots/latest/daily_bars
+#          write to factor_pipeline/output
+python -m factor_pipeline.pipeline
 ```
 
 ```bash
-# Override snapshot and output directories
-python -m factor_pipeline.pipeline 600000 \
-  --snapshot-dir data/market_data/snapshots/latest \
+# Explicit input and output directories
+python -m factor_pipeline.pipeline \
+  --input-dir data/market_data/snapshots/latest/daily_bars \
   --output-dir factor_pipeline/output
-```
-
-```bash
-# Use a raw daily-bars directory before a snapshot is published
-python -m factor_pipeline.pipeline 600000 \
-  --daily-bars-dir data/market_data/daily_bars/provider=akshare/adjust=qfq/frequency=1d
 ```
 
 Expected stdout:
@@ -261,7 +256,7 @@ factor_pipeline/
 ├── __init__.py              # 包入口；导出 FactorEngine、FactorEngineResult
 ├── paths.py                 # 默认输入/输出路径常量
 ├── engine.py                # 按顺序编排所有阶段
-├── pipeline.py              # 单只股票 CLI 入口
+├── pipeline.py              # CLI 入口（--input-dir, --output-dir）
 ├── README.md
 │
 ├── io/
@@ -313,7 +308,7 @@ factor_pipeline/
 | `dataset/scaler.py` | 特征缩放 | 透传占位 |
 | `dataset/splitter.py` | 数据集切分 | 透传占位；**尚未被 `engine.py` 调用** |
 | `engine.py` | 流水线编排 | 对单只股票按序调用各活跃阶段 |
-| `pipeline.py` | 程序入口 | 解析 CLI 参数并运行 `FactorEngine` |
+| `pipeline.py` | 程序入口 | 解析 `--input-dir` 与 `--output-dir`，对每个 parquet 文件运行 `FactorEngine` |
 
 ### 输入约定
 
@@ -351,7 +346,7 @@ factor_pipeline/output/{symbol}_factor.parquet
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  pipeline.py  (CLI)                                             │
-│  python -m factor_pipeline.pipeline 600000                      │
+│  python -m factor_pipeline.pipeline --input-dir ... --output-dir ... │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -414,21 +409,16 @@ factor_pipeline/output/{symbol}_factor.parquet
 ### 运行方式
 
 ```bash
-# 默认：从 data/market_data/snapshots/latest 读取
-python -m factor_pipeline.pipeline 600000
+# 默认：从 data/market_data/snapshots/latest/daily_bars 读取
+#       写入 factor_pipeline/output
+python -m factor_pipeline.pipeline
 ```
 
 ```bash
-# 自定义快照目录与输出目录
-python -m factor_pipeline.pipeline 600000 \
-  --snapshot-dir data/market_data/snapshots/latest \
+# 显式指定输入与输出目录
+python -m factor_pipeline.pipeline \
+  --input-dir data/market_data/snapshots/latest/daily_bars \
   --output-dir factor_pipeline/output
-```
-
-```bash
-# 快照尚未发布时，直接指定日线目录
-python -m factor_pipeline.pipeline 600000 \
-  --daily-bars-dir data/market_data/daily_bars/provider=akshare/adjust=qfq/frequency=1d
 ```
 
 预期输出：
