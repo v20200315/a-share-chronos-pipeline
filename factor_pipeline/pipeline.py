@@ -28,7 +28,7 @@ def main() -> None:
             output_dir=args.output_dir,
         )
         result = engine.run_all()
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, PermissionError) as exc:
         print(f'[FAIL] {exc}', file=sys.stderr)
         sys.exit(1)
 

@@ -1,4 +1,5 @@
 import json
+import stat
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,7 @@ from factor_pipeline.io.loader import (
     load_snapshot,
     validate_required_columns,
 )
+from factor_pipeline.paths import validate_output_dir
 
 
 def _market_data_frame(code: str, rows: int = 5, *, reverse: bool = False) -> pd.DataFrame:
@@ -48,6 +50,10 @@ def _write_snapshot(tmp_path: Path) -> Path:
         index=False,
     )
     _market_data_frame('600000').to_parquet(daily_bars_dir / '600000.parquet', index=False)
+    pd.DataFrame({'code': ['000001', '600000'], 'name': ['A', 'B']}).to_parquet(
+        snapshot_dir / 'stock_basic.parquet',
+        index=False,
+    )
     manifest = {
         'daily_bars_path': str(daily_bars_dir),
         'metadata_path': str(snapshot_dir / 'stock_basic.parquet'),
@@ -92,6 +98,19 @@ def test_load_market_data_normalizes_symbol_to_six_digits(tmp_path):
     pd.testing.assert_frame_equal(loaded, expected)
 
 
+def test_load_snapshot_raises_when_snapshot_dir_missing(tmp_path):
+    with pytest.raises(FileNotFoundError, match='snapshot directory not found'):
+        load_snapshot(tmp_path / 'missing_snapshot')
+
+
+def test_load_snapshot_raises_when_snapshot_dir_is_file(tmp_path):
+    snapshot_file = tmp_path / 'snapshot.txt'
+    snapshot_file.write_text('not a directory', encoding='utf-8')
+
+    with pytest.raises(FileNotFoundError, match='snapshot directory not found'):
+        load_snapshot(snapshot_file)
+
+
 def test_load_snapshot_raises_when_manifest_missing(tmp_path):
     snapshot_dir = tmp_path / 'snapshot'
     snapshot_dir.mkdir()
@@ -100,13 +119,57 @@ def test_load_snapshot_raises_when_manifest_missing(tmp_path):
         load_snapshot(snapshot_dir)
 
 
-def test_load_snapshot_raises_when_symbols_missing(tmp_path):
+def test_load_snapshot_raises_when_metadata_missing(tmp_path):
     snapshot_dir = tmp_path / 'snapshot'
     daily_bars_dir = snapshot_dir / 'daily_bars'
     daily_bars_dir.mkdir(parents=True)
     _market_data_frame('600000').to_parquet(daily_bars_dir / '600000.parquet', index=False)
     manifest = {
         'daily_bars_path': str(daily_bars_dir),
+        'metadata_path': str(snapshot_dir / 'stock_basic.parquet'),
+        'symbols': ['600000'],
+    }
+    (snapshot_dir / 'manifest.json').write_text(
+        json.dumps(manifest, ensure_ascii=False),
+        encoding='utf-8',
+    )
+
+    with pytest.raises(FileNotFoundError, match='snapshot metadata parquet not found'):
+        load_snapshot(snapshot_dir)
+
+
+def test_load_snapshot_raises_when_symbol_parquet_missing(tmp_path):
+    snapshot_dir = tmp_path / 'snapshot'
+    daily_bars_dir = snapshot_dir / 'daily_bars'
+    daily_bars_dir.mkdir(parents=True)
+    _market_data_frame('600000').to_parquet(daily_bars_dir / '600000.parquet', index=False)
+    pd.DataFrame({'code': ['000001', '600000']}).to_parquet(
+        snapshot_dir / 'stock_basic.parquet',
+        index=False,
+    )
+    manifest = {
+        'daily_bars_path': str(daily_bars_dir),
+        'metadata_path': str(snapshot_dir / 'stock_basic.parquet'),
+        'symbols': ['000001', '600000'],
+    }
+    (snapshot_dir / 'manifest.json').write_text(
+        json.dumps(manifest, ensure_ascii=False),
+        encoding='utf-8',
+    )
+
+    with pytest.raises(FileNotFoundError, match='market data parquet not found'):
+        load_snapshot(snapshot_dir)
+
+
+def test_load_snapshot_raises_when_symbols_missing(tmp_path):
+    snapshot_dir = tmp_path / 'snapshot'
+    daily_bars_dir = snapshot_dir / 'daily_bars'
+    daily_bars_dir.mkdir(parents=True)
+    _market_data_frame('600000').to_parquet(daily_bars_dir / '600000.parquet', index=False)
+    pd.DataFrame({'code': ['600000']}).to_parquet(snapshot_dir / 'stock_basic.parquet', index=False)
+    manifest = {
+        'daily_bars_path': str(daily_bars_dir),
+        'metadata_path': str(snapshot_dir / 'stock_basic.parquet'),
         'symbols': [],
     }
     (snapshot_dir / 'manifest.json').write_text(
@@ -129,6 +192,27 @@ def test_load_market_data_raises_when_parquet_missing(tmp_path):
 def test_validate_required_columns_raises_when_columns_missing():
     with pytest.raises(ValueError, match='missing required columns'):
         validate_required_columns(['code', 'date', 'close'])
+
+
+def test_validate_output_dir_creates_missing_parent(tmp_path):
+    output_dir = tmp_path / 'nested' / 'factor_pipeline' / 'output'
+
+    resolved = validate_output_dir(output_dir)
+
+    assert resolved == output_dir
+    assert output_dir.is_dir()
+
+
+def test_validate_output_dir_raises_when_not_writable(tmp_path):
+    output_dir = tmp_path / 'output'
+    output_dir.mkdir()
+    output_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+
+    try:
+        with pytest.raises(PermissionError, match='output directory is not writable'):
+            validate_output_dir(output_dir)
+    finally:
+        output_dir.chmod(stat.S_IRWXU)
 
 
 def test_export_factor_dataset_writes_symbol_factor_parquet(tmp_path):

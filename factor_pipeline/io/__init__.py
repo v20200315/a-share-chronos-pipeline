@@ -5,6 +5,7 @@ from factor_pipeline.io.loader import (
     load_market_data,
     load_snapshot,
     validate_required_columns,
+    validate_snapshot_symbols,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     'load_market_data',
     'load_snapshot',
     'validate_required_columns',
+    'validate_snapshot_symbols',
 ]

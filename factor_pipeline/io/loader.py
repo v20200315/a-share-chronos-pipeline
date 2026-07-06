@@ -59,10 +59,14 @@ def load_snapshot(snapshot_dir: str | Path = MARKET_DATA_SNAPSHOT_LATEST) -> Mar
         Resolved snapshot metadata including daily-bars directory and symbols.
 
     Raises:
-        FileNotFoundError: If the manifest or daily-bars directory is missing.
+        FileNotFoundError: If the snapshot directory, manifest, metadata, or daily-bars
+            directory is missing.
         ValueError: If the manifest does not list any symbols.
     """
     snapshot_path = Path(snapshot_dir)
+    if not snapshot_path.is_dir():
+        raise FileNotFoundError(f'snapshot directory not found: {snapshot_path}')
+
     manifest_path = snapshot_path / 'manifest.json'
     if not manifest_path.exists():
         raise FileNotFoundError(f'market data snapshot manifest not found: {manifest_path}')
@@ -83,7 +87,27 @@ def load_snapshot(snapshot_dir: str | Path = MARKET_DATA_SNAPSHOT_LATEST) -> Mar
     if not snapshot.symbols:
         raise ValueError(f'snapshot manifest contains no symbols: {manifest_path}')
 
+    metadata_path = snapshot.metadata_path
+    if not metadata_path.exists():
+        raise FileNotFoundError(f'snapshot metadata parquet not found: {metadata_path}')
+
+    validate_snapshot_symbols(snapshot)
     return snapshot
+
+
+def validate_snapshot_symbols(snapshot: MarketDataSnapshot) -> None:
+    """Validate that every manifest symbol has a daily-bars parquet file.
+
+    Args:
+        snapshot: Preloaded snapshot metadata.
+
+    Raises:
+        FileNotFoundError: If any listed symbol parquet is missing.
+    """
+    for symbol in snapshot.symbols:
+        parquet_path = snapshot.daily_bars_dir / f'{symbol}.parquet'
+        if not parquet_path.exists():
+            raise FileNotFoundError(f'market data parquet not found: {parquet_path}')
 
 
 def load_market_data(symbol: str, *, snapshot: MarketDataSnapshot) -> pd.DataFrame:

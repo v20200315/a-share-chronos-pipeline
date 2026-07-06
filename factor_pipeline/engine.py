@@ -13,7 +13,11 @@ from factor_pipeline.factors.volume import compute_volume_factors
 from factor_pipeline.io.exporter import export_factor_dataset
 from factor_pipeline.io.loader import load_market_data, load_snapshot
 from factor_pipeline.labels.label_generator import generate_labels
-from factor_pipeline.paths import FACTOR_OUTPUT_DIR, MARKET_DATA_SNAPSHOT_LATEST
+from factor_pipeline.paths import (
+    FACTOR_OUTPUT_DIR,
+    MARKET_DATA_SNAPSHOT_LATEST,
+    validate_output_dir,
+)
 
 
 @dataclass(frozen=True)
@@ -48,7 +52,7 @@ class FactorEngine:
             output_dir: Directory that stores exported factor parquet files.
         """
         self.snapshot = load_snapshot(snapshot_dir)
-        self.output_dir = Path(output_dir)
+        self.output_dir = validate_output_dir(output_dir)
 
     def run(self, symbol: str) -> FactorEngineResult:
         """Execute the factor pipeline for one symbol.
