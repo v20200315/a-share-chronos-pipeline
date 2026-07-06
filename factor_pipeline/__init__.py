@@ -1,5 +1,5 @@
 """Factor pipeline package."""
 
-from factor_pipeline.engine import FactorEngine, FactorEngineResult
+from factor_pipeline.engine import FactorEngine, FactorEngineBatchResult, FactorEngineResult
 
-__all__ = ['FactorEngine', 'FactorEngineResult']
+__all__ = ['FactorEngine', 'FactorEngineBatchResult', 'FactorEngineResult']

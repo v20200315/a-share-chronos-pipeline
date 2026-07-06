@@ -30,7 +30,7 @@ factor_pipeline/
 ├── __init__.py              # Package entry; exports FactorEngine, FactorEngineResult
 ├── paths.py                 # Default input/output path constants
 ├── engine.py                # Orchestrates all stages in order
-├── pipeline.py              # CLI entry point (--input-dir, --output-dir)
+├── pipeline.py              # CLI entry point (--snapshot-dir, --output-dir)
 ├── README.md
 │
 ├── io/
@@ -82,7 +82,7 @@ factor_pipeline/
 | `dataset/scaler.py` | Scale features | Pass-through placeholder |
 | `dataset/splitter.py` | Split dataset | Pass-through placeholder; **not called by `engine.py` yet** |
 | `engine.py` | Pipeline orchestration | Calls every active stage sequentially for one symbol |
-| `pipeline.py` | Program entry point | Parses `--input-dir` and `--output-dir`, runs `FactorEngine` for each parquet file |
+| `pipeline.py` | Program entry point | Parses `--snapshot-dir` and `--output-dir`, runs `FactorEngine.run_all()` from manifest symbols |
 
 ### Input Contract
 
@@ -120,7 +120,7 @@ Current output columns = input market-data columns + `label`.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  pipeline.py  (CLI)                                             │
-│  python -m factor_pipeline.pipeline --input-dir ... --output-dir ... │
+│  python -m factor_pipeline.pipeline --snapshot-dir ... --output-dir ... │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -189,10 +189,10 @@ python -m factor_pipeline.pipeline
 ```
 
 ```bash
-# Explicit input and output directories
+# Explicit snapshot and output directories
 python -m factor_pipeline.pipeline \
-  --input-dir data/market_data/snapshots/latest/daily_bars \
-  --output-dir factor_pipeline/output
+  --snapshot-dir data/market_data/snapshots/latest \
+  --output-dir data/factor_pipeline/output
 ```
 
 Expected stdout:
@@ -256,7 +256,7 @@ factor_pipeline/
 ├── __init__.py              # 包入口；导出 FactorEngine、FactorEngineResult
 ├── paths.py                 # 默认输入/输出路径常量
 ├── engine.py                # 按顺序编排所有阶段
-├── pipeline.py              # CLI 入口（--input-dir, --output-dir）
+├── pipeline.py              # CLI 入口（--snapshot-dir, --output-dir）
 ├── README.md
 │
 ├── io/
@@ -308,7 +308,7 @@ factor_pipeline/
 | `dataset/scaler.py` | 特征缩放 | 透传占位 |
 | `dataset/splitter.py` | 数据集切分 | 透传占位；**尚未被 `engine.py` 调用** |
 | `engine.py` | 流水线编排 | 对单只股票按序调用各活跃阶段 |
-| `pipeline.py` | 程序入口 | 解析 `--input-dir` 与 `--output-dir`，对每个 parquet 文件运行 `FactorEngine` |
+| `pipeline.py` | 程序入口 | 解析 `--snapshot-dir` 与 `--output-dir`，按 manifest 中的 symbols 运行 `FactorEngine.run_all()` |
 
 ### 输入约定
 
@@ -346,7 +346,7 @@ factor_pipeline/output/{symbol}_factor.parquet
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  pipeline.py  (CLI)                                             │
-│  python -m factor_pipeline.pipeline --input-dir ... --output-dir ... │
+│  python -m factor_pipeline.pipeline --snapshot-dir ... --output-dir ... │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -415,10 +415,10 @@ python -m factor_pipeline.pipeline
 ```
 
 ```bash
-# 显式指定输入与输出目录
+# 显式指定快照目录与输出目录
 python -m factor_pipeline.pipeline \
-  --input-dir data/market_data/snapshots/latest/daily_bars \
-  --output-dir factor_pipeline/output
+  --snapshot-dir data/market_data/snapshots/latest \
+  --output-dir data/factor_pipeline/output
 ```
 
 预期输出：

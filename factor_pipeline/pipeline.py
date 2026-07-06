@@ -2,19 +2,18 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 from factor_pipeline.engine import FactorEngine
-from factor_pipeline.paths import FACTOR_INPUT_DIR, FACTOR_OUTPUT_DIR
+from factor_pipeline.paths import FACTOR_OUTPUT_DIR, MARKET_DATA_SNAPSHOT_LATEST
 
 
 def main() -> None:
-    """Run the factor pipeline for all symbols in the input directory."""
+    """Run the factor pipeline for all symbols listed in a snapshot manifest."""
     parser = argparse.ArgumentParser(description='Run the factor pipeline.')
     parser.add_argument(
-        '--input-dir',
-        default=str(FACTOR_INPUT_DIR),
-        help='directory containing one parquet file per symbol, for example daily_bars/',
+        '--snapshot-dir',
+        default=str(MARKET_DATA_SNAPSHOT_LATEST),
+        help='market data snapshot directory containing manifest.json',
     )
     parser.add_argument(
         '--output-dir',
@@ -23,21 +22,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    input_dir = Path(args.input_dir)
-    output_dir = Path(args.output_dir)
-    if not input_dir.is_dir():
-        print(f'[FAIL] input directory not found: {input_dir}', file=sys.stderr)
+    try:
+        engine = FactorEngine(
+            snapshot_dir=args.snapshot_dir,
+            output_dir=args.output_dir,
+        )
+        result = engine.run_all()
+    except (FileNotFoundError, ValueError) as exc:
+        print(f'[FAIL] {exc}', file=sys.stderr)
         sys.exit(1)
 
-    parquet_files = sorted(input_dir.glob('*.parquet'))
-    if not parquet_files:
-        print(f'[FAIL] no parquet files found in: {input_dir}', file=sys.stderr)
-        sys.exit(1)
-
-    engine = FactorEngine(daily_bars_dir=input_dir, output_dir=output_dir)
-    for parquet_path in parquet_files:
-        result = engine.run(parquet_path.stem)
-        print(f'[OK] saved -> {result.output_path}')
+    for saved_path in result.saved_paths:
+        print(f'[OK] saved -> {saved_path}')
 
 
 if __name__ == '__main__':

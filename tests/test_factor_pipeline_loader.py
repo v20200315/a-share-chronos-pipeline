@@ -50,6 +50,7 @@ def _write_snapshot(tmp_path: Path) -> Path:
     _market_data_frame('600000').to_parquet(daily_bars_dir / '600000.parquet', index=False)
     manifest = {
         'daily_bars_path': str(daily_bars_dir),
+        'metadata_path': str(snapshot_dir / 'stock_basic.parquet'),
         'symbols': ['000001', '600000'],
         'metadata_provider': 'akshare',
     }
@@ -60,14 +61,15 @@ def _write_snapshot(tmp_path: Path) -> Path:
     return snapshot_dir
 
 
-def test_load_snapshot_reads_manifest_and_resolves_daily_bars_dir(tmp_path):
+def test_load_snapshot_reads_manifest_and_resolves_paths(tmp_path):
     snapshot_dir = _write_snapshot(tmp_path)
 
     snapshot = load_snapshot(snapshot_dir)
 
     assert snapshot.snapshot_dir == snapshot_dir
     assert snapshot.daily_bars_dir == snapshot_dir / 'daily_bars'
-    assert snapshot.manifest['symbols'] == ['000001', '600000']
+    assert snapshot.metadata_path == snapshot_dir / 'stock_basic.parquet'
+    assert snapshot.symbols == ['000001', '600000']
 
 
 def test_load_market_data_reads_snapshot_without_transforming_rows(tmp_path):
@@ -90,22 +92,29 @@ def test_load_market_data_normalizes_symbol_to_six_digits(tmp_path):
     pd.testing.assert_frame_equal(loaded, expected)
 
 
-def test_load_market_data_uses_daily_bars_dir_override_without_manifest(tmp_path):
-    daily_bars_dir = tmp_path / 'daily_bars'
-    daily_bars_dir.mkdir(parents=True)
-    expected = _market_data_frame('600000')
-    expected.to_parquet(daily_bars_dir / '600000.parquet', index=False)
-
-    loaded = load_market_data('600000', daily_bars_dir=daily_bars_dir)
-
-    pd.testing.assert_frame_equal(loaded, expected)
-
-
 def test_load_snapshot_raises_when_manifest_missing(tmp_path):
     snapshot_dir = tmp_path / 'snapshot'
     snapshot_dir.mkdir()
 
     with pytest.raises(FileNotFoundError, match='manifest not found'):
+        load_snapshot(snapshot_dir)
+
+
+def test_load_snapshot_raises_when_symbols_missing(tmp_path):
+    snapshot_dir = tmp_path / 'snapshot'
+    daily_bars_dir = snapshot_dir / 'daily_bars'
+    daily_bars_dir.mkdir(parents=True)
+    _market_data_frame('600000').to_parquet(daily_bars_dir / '600000.parquet', index=False)
+    manifest = {
+        'daily_bars_path': str(daily_bars_dir),
+        'symbols': [],
+    }
+    (snapshot_dir / 'manifest.json').write_text(
+        json.dumps(manifest, ensure_ascii=False),
+        encoding='utf-8',
+    )
+
+    with pytest.raises(ValueError, match='snapshot manifest contains no symbols'):
         load_snapshot(snapshot_dir)
 
 
@@ -148,3 +157,17 @@ def test_factor_engine_runs_end_to_end(tmp_path):
     saved = pd.read_parquet(result.output_path)
     assert set(saved.columns) == {*REQUIRED_COLUMNS, 'label'}
     assert saved['label'].tolist() == [0] * len(saved)
+
+
+def test_factor_engine_run_all_uses_manifest_symbols(tmp_path):
+    snapshot_dir = _write_snapshot(tmp_path)
+    output_dir = tmp_path / 'factor_pipeline' / 'output'
+    engine = FactorEngine(snapshot_dir=snapshot_dir, output_dir=output_dir)
+
+    result = engine.run_all()
+
+    assert result.snapshot_dir == snapshot_dir
+    assert [path.name for path in result.saved_paths] == [
+        '000001_factor.parquet',
+        '600000_factor.parquet',
+    ]
