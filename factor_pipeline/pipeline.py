@@ -23,9 +23,11 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
+        print('[INFO] starting factor pipeline')
         engine = FactorEngine(
             snapshot_dir=args.snapshot_dir,
             output_dir=args.output_dir,
+            verbose=True,
         )
         result = engine.run_all()
     except (FileNotFoundError, ValueError, PermissionError) as exc:

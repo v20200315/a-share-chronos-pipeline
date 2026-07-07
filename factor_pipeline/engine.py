@@ -44,15 +44,23 @@ class FactorEngine:
         *,
         snapshot_dir: str | Path = MARKET_DATA_SNAPSHOT_LATEST,
         output_dir: str | Path = FACTOR_OUTPUT_DIR,
+        verbose: bool = False,
     ) -> None:
         """Initialize the engine.
 
         Args:
             snapshot_dir: Market-data snapshot directory containing ``manifest.json``.
             output_dir: Directory that stores exported factor parquet files.
+            verbose: Print pipeline step messages to stdout when ``True``.
         """
+        self.verbose = verbose
         self.snapshot = load_snapshot(snapshot_dir)
         self.output_dir = validate_output_dir(output_dir)
+        if self.verbose:
+            _print_step(f'snapshot -> {self.snapshot.snapshot_dir}')
+            _print_step(f'daily bars -> {self.snapshot.daily_bars_dir}')
+            _print_step(f'symbols -> {", ".join(self.snapshot.symbols)}')
+            _print_step(f'output -> {self.output_dir}')
 
     def run(self, symbol: str) -> FactorEngineResult:
         """Execute the factor pipeline for one symbol.
@@ -63,17 +71,48 @@ class FactorEngine:
         Returns:
             Metadata describing the exported factor dataset path.
         """
+        normalized_symbol = str(symbol).zfill(6)
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] load market data')
+
         df = load_market_data(symbol, snapshot=self.snapshot)
+
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] clean data')
         df = clean(df)
+
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] compute technical factors')
         df = compute_technical_factors(df)
+
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] compute price factors')
         df = compute_price_factors(df)
+
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] compute volume factors')
         df = compute_volume_factors(df)
+
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] compute volatility factors')
         df = compute_volatility_factors(df)
+
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] generate labels')
         df = generate_labels(df)
+
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] build dataset')
         df = build_dataset(df)
+
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] scale dataset')
         df = scale_dataset(df)
+
+        if self.verbose:
+            _print_step(f'[{normalized_symbol}] export parquet')
         output_path = export_factor_dataset(df, symbol, output_dir=self.output_dir)
-        return FactorEngineResult(symbol=str(symbol).zfill(6), output_path=output_path)
+        return FactorEngineResult(symbol=normalized_symbol, output_path=output_path)
 
     def run_all(self) -> FactorEngineBatchResult:
         """Execute the factor pipeline for every symbol listed in the snapshot manifest.
@@ -81,8 +120,17 @@ class FactorEngine:
         Returns:
             Metadata describing all exported factor dataset paths.
         """
-        saved_paths = [self.run(symbol).output_path for symbol in self.snapshot.symbols]
+        symbols = self.snapshot.symbols
+        saved_paths: list[Path] = []
+        for index, symbol in enumerate(symbols, start=1):
+            if self.verbose:
+                _print_step(f'processing symbol {symbol} ({index}/{len(symbols)})')
+            saved_paths.append(self.run(symbol).output_path)
         return FactorEngineBatchResult(
             snapshot_dir=self.snapshot.snapshot_dir,
             saved_paths=saved_paths,
         )
+
+
+def _print_step(message: str) -> None:
+    print(f'[INFO] {message}')
