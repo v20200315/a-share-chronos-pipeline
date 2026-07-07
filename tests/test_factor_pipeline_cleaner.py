@@ -5,7 +5,9 @@ import pytest
 from factor_pipeline.cleaner.cleaner import MarketDataCleaner, MarketDataValidationError, clean
 
 
-def _valid_frame(*, rows: int = 3, reverse: bool = False, duplicate_first: bool = False) -> pd.DataFrame:
+def _valid_frame(
+    *, rows: int = 3, reverse: bool = False, duplicate_first: bool = False
+) -> pd.DataFrame:
     dates = pd.date_range('2024-01-01', periods=rows, freq='D')
     close = np.linspace(10.0, 12.0, rows)
     df = pd.DataFrame(
