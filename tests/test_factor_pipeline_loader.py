@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from factor_pipeline.engine import FactorEngine
+from factor_pipeline.factors.technical import TECHNICAL_FACTOR_COLUMNS
 from factor_pipeline.io.exporter import export_factor_dataset
 from factor_pipeline.io.loader import (
     REQUIRED_COLUMNS,
@@ -239,7 +240,7 @@ def test_factor_engine_runs_end_to_end(tmp_path):
     assert result.output_path.exists()
 
     saved = pd.read_parquet(result.output_path)
-    assert set(saved.columns) == {*REQUIRED_COLUMNS, 'label'}
+    assert set(saved.columns) == {*REQUIRED_COLUMNS, *TECHNICAL_FACTOR_COLUMNS, 'label'}
     assert saved['label'].tolist() == [0] * len(saved)
 
 
