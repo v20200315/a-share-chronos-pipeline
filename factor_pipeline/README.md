@@ -8,7 +8,7 @@
 
 `factor_pipeline` is the second layer in the A-share quantitative research stack. It consumes daily market data published by `market_data_pipeline` and produces per-symbol factor datasets for downstream `alpha_model_pipeline` and `backtest_pipeline`.
 
-The pipeline is **wired end-to-end**. Input loading, snapshot validation, output-directory checks, the **data quality layer** (`cleaner/`), **technical factors** (`factors/technical.py` — MACD + RSI via TA-Lib), and **price factors** (`factors/price.py` — daily returns and momentum via pandas) are implemented. Volume, volatility factors, dataset, and label stages remain placeholders until real logic is added.
+The pipeline is **wired end-to-end**. Input loading, snapshot validation, output-directory checks, the **data quality layer** (`cleaner/`), **technical factors** (`factors/technical.py` — MACD + RSI via TA-Lib), **price factors** (`factors/price.py` — daily returns and momentum via pandas), and **volume factors** (`factors/volume.py` — volume change, MA, ratio, and turnover via pandas) are implemented. Volatility factors, dataset, and label stages remain placeholders until real logic is added.
 
 ```
 market_data_pipeline
@@ -47,7 +47,7 @@ factor_pipeline/
 │   ├── base.py              # Shared pass-through helper for factor stages
 │   ├── technical.py         # Technical factors: MACD + RSI (TechnicalFactorGenerator)
 │   ├── price.py             # Price factors: returns + momentum (PriceFactorGenerator)
-│   ├── volume.py            # Volume factor stage (placeholder)
+│   ├── volume.py            # Volume factors: change + MA + ratio + turnover (VolumeFactorGenerator)
 │   └── volatility.py        # Volatility factor stage (placeholder)
 │
 ├── labels/
@@ -74,7 +74,8 @@ factor_pipeline/
 | `cleaner/cleaner.py` | Data quality layer | `MarketDataCleaner`: standardize dates, sort, dedupe, validate OHLCV rules (see below) |
 | `factors/technical.py` | Technical factors | `TechnicalFactorGenerator`: MACD (12/26/9) and RSI (14) via TA-Lib; appends `macd`, `macd_signal`, `macd_hist`, `rsi` |
 | `factors/price.py` | Price factors | `PriceFactorGenerator`: daily returns and momentum from `close`; appends `return_1d`, `return_5d`, `return_10d`, `momentum_5d`, `momentum_10d` |
-| `factors/volume.py`, `volatility.py` | Factor engineering | Pass-through placeholders |
+| `factors/volume.py` | Volume factors | `VolumeFactorGenerator`: volume change, MA, ratio, and turnover from `volume`/`turnover`; appends 7 columns (see below) |
+| `factors/volatility.py` | Factor engineering | Pass-through placeholder |
 | `labels/label_generator.py` | Supervised labels | Adds temporary column `label = 0` |
 | `dataset/*.py` | Dataset prep | Pass-through placeholders; `splitter.py` not wired into `engine.py` |
 | `engine.py` | Pipeline orchestration | Loads snapshot, validates output dir, runs all active stages per symbol |
@@ -202,6 +203,36 @@ Leading `NaN` values from `shift()` are preserved (not filled).
 - Does **not** fill or impute factor NaNs
 - Does **not** modify original market-data or upstream factor columns
 
+### Volume Factors (`factors/volume.py`)
+
+After price factors, `VolumeFactorGenerator` appends volume- and liquidity-related columns from `volume` and `turnover` using pandas vectorized operations. The input DataFrame is never mutated; all columns are added on a copy.
+
+#### Output columns
+
+| Column | Factor | Formula |
+|--------|--------|---------|
+| `volume_change_1d` | 1-day volume change | `volume / volume.shift(1) - 1` |
+| `volume_change_5d` | 5-day volume change | `volume / volume.shift(5) - 1` |
+| `volume_ma_5` | 5-day volume MA | `volume.rolling(5).mean()` |
+| `volume_ma_10` | 10-day volume MA | `volume.rolling(10).mean()` |
+| `volume_ratio_5` | Volume vs 5-day MA | `volume / volume_ma_5` |
+| `turnover_ma_5` | 5-day turnover MA | `turnover.rolling(5).mean()` |
+| `turnover_change_1d` | 1-day turnover change | `turnover / turnover.shift(1) - 1` |
+
+Leading `NaN` values from `shift()` and `rolling()` are preserved (not filled). `volume_ratio_5` depends on `volume_ma_5` computed in the same stage.
+
+#### Validation and errors
+
+| Check | Behavior |
+|-------|----------|
+| Required input | `volume` and `turnover` must exist; otherwise `ValueError` |
+| No overwrite | Raises `ValueError` if any output column already exists |
+
+#### Explicit non-goals
+
+- Does **not** fill or impute factor NaNs
+- Does **not** modify original market-data or upstream factor columns
+
 ### Output Contract
 
 ```
@@ -210,7 +241,7 @@ data/factor_pipeline/output/{symbol}_factor.parquet
 
 Example: `data/factor_pipeline/output/600000_factor.parquet`
 
-Current output columns = input market-data columns + technical factors (`macd`, `macd_signal`, `macd_hist`, `rsi`) + price factors (`return_1d`, `return_5d`, `return_10d`, `momentum_5d`, `momentum_10d`) + `label`.
+Current output columns = input market-data columns + technical factors (`macd`, `macd_signal`, `macd_hist`, `rsi`) + price factors (`return_1d`, `return_5d`, `return_10d`, `momentum_5d`, `momentum_10d`) + volume factors (`volume_change_1d`, `volume_change_5d`, `volume_ma_5`, `volume_ma_10`, `volume_ratio_5`, `turnover_ma_5`, `turnover_change_1d`) + `label`.
 
 ### Full Workflow
 
@@ -295,21 +326,23 @@ print(result.output_path)
 ### Tests
 
 ```bash
-python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline_cleaner.py tests/test_factor_pipeline_technical.py tests/test_factor_pipeline_price.py -v
+python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline_cleaner.py tests/test_factor_pipeline_technical.py tests/test_factor_pipeline_price.py tests/test_factor_pipeline_volume.py -v
 ```
 
 - `test_factor_pipeline_loader.py` — snapshot loading, path validation, exporter, end-to-end engine
 - `test_factor_pipeline_cleaner.py` — date sort, dedupe, OHLCV rules, NaN skip policy
 - `test_factor_pipeline_technical.py` — MACD/RSI vs TA-Lib reference, missing-column and overwrite guards
 - `test_factor_pipeline_price.py` — returns/momentum formulas, NaN behavior, missing-column and overwrite guards
+- `test_factor_pipeline_volume.py` — volume/turnover formulas, NaN behavior, missing-column and overwrite guards
 
 ### Design Notes
 
 - Replaces the older `feature_pipeline` input contract (snapshot-based loading).
 - Does **not** import `market_data_pipeline` directly.
-- Does **not** implement volume/volatility factors, scaling (RobustScaler), or ML.
+- Does **not** implement volatility factors, scaling (RobustScaler), or ML.
 - Technical factors (MACD, RSI) are implemented in `factors/technical.py` using TA-Lib.
 - Price factors (returns, momentum) are implemented in `factors/price.py` using pandas vectorized ops.
+- Volume factors (change, MA, ratio, turnover) are implemented in `factors/volume.py` using pandas vectorized ops.
 - `dataset/splitter.py` is reserved for future train/validation/test splitting and is not yet wired into `engine.py`.
 
 ---
@@ -320,7 +353,7 @@ python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline
 
 `factor_pipeline` 是 A 股量化研究体系中的第二层。它读取 `market_data_pipeline` 发布的日频行情快照，为下游的 `alpha_model_pipeline` 和 `backtest_pipeline` 生成按股票代码拆分的因子数据集。
 
-流水线已**端到端打通**。输入加载、快照校验、输出目录校验、**数据质量层**（`cleaner/`）、**技术因子**（`factors/technical.py` — 基于 TA-Lib 的 MACD + RSI）以及**价格因子**（`factors/price.py` — 基于 pandas 的日收益率与动量）已实现。成交量、波动率因子、数据集与标签阶段仍为占位，待后续接入真实逻辑。
+流水线已**端到端打通**。输入加载、快照校验、输出目录校验、**数据质量层**（`cleaner/`）、**技术因子**（`factors/technical.py` — 基于 TA-Lib 的 MACD + RSI）、**价格因子**（`factors/price.py` — 基于 pandas 的日收益率与动量）以及**成交量因子**（`factors/volume.py` — 基于 pandas 的成交量变化、均线、比率与换手率）已实现。波动率因子、数据集与标签阶段仍为占位，待后续接入真实逻辑。
 
 ```
 market_data_pipeline
@@ -355,7 +388,7 @@ factor_pipeline/
 ├── factors/
 │   ├── technical.py         # 技术因子：MACD + RSI（TechnicalFactorGenerator）
 │   ├── price.py             # 价格因子：收益率 + 动量（PriceFactorGenerator）
-│   ├── volume.py            # 成交量因子（占位）
+│   ├── volume.py            # 成交量因子：变化 + 均线 + 比率 + 换手率（VolumeFactorGenerator）
 │   └── volatility.py        # 波动率因子（占位）
 │
 ├── labels/                  # 标签阶段（占位，临时 label=0）
@@ -375,7 +408,8 @@ factor_pipeline/
 | `cleaner/cleaner.py` | 数据质量层 | `MarketDataCleaner`：日期标准化、排序、去重、OHLCV 业务规则校验 |
 | `factors/technical.py` | 技术因子 | `TechnicalFactorGenerator`：TA-Lib 计算 MACD（12/26/9）与 RSI（14）；追加 `macd`、`macd_signal`、`macd_hist`、`rsi` |
 | `factors/price.py` | 价格因子 | `PriceFactorGenerator`：基于 `close` 计算日收益率与动量；追加 `return_1d`、`return_5d`、`return_10d`、`momentum_5d`、`momentum_10d` |
-| `factors/volume.py`、`volatility.py` | 因子工程 | 透传占位 |
+| `factors/volume.py` | 成交量因子 | `VolumeFactorGenerator`：基于 `volume`/`turnover` 计算成交量变化、均线、比率与换手率；追加 7 列（见下文） |
+| `factors/volatility.py` | 因子工程 | 透传占位 |
 | `labels/label_generator.py` | 标签 | 添加临时列 `label = 0` |
 | `dataset/*.py` | 数据集准备 | 透传占位；`splitter.py` 未接入 `engine.py` |
 | `engine.py` | 流水线编排 | 加载快照、校验输出目录、按序执行各阶段 |
@@ -501,6 +535,36 @@ date, code, open, high, low, close, volume, amount, amplitude, pct_change, chang
 - 不填充或插补因子 NaN
 - 不修改原始行情列或上游因子列
 
+### 成交量因子（`factors/volume.py`）
+
+价格因子完成后，`VolumeFactorGenerator` 基于 `volume` 与 `turnover` 列使用 pandas 向量化运算追加成交量与流动性类因子。输入 DataFrame 不会被原地修改，所有新列均写入副本。
+
+#### 输出列
+
+| 列名 | 因子 | 公式 |
+|------|------|------|
+| `volume_change_1d` | 1 日成交量变化 | `volume / volume.shift(1) - 1` |
+| `volume_change_5d` | 5 日成交量变化 | `volume / volume.shift(5) - 1` |
+| `volume_ma_5` | 5 日成交量均线 | `volume.rolling(5).mean()` |
+| `volume_ma_10` | 10 日成交量均线 | `volume.rolling(10).mean()` |
+| `volume_ratio_5` | 成交量相对 5 日均线 | `volume / volume_ma_5` |
+| `turnover_ma_5` | 5 日换手率均线 | `turnover.rolling(5).mean()` |
+| `turnover_change_1d` | 1 日换手率变化 | `turnover / turnover.shift(1) - 1` |
+
+`shift()` 与 `rolling()` 产生的首部 `NaN` 原样保留（不填充）。`volume_ratio_5` 依赖同阶段计算的 `volume_ma_5`。
+
+#### 校验与错误
+
+| 检查项 | 行为 |
+|--------|------|
+| 必需输入 | 必须存在 `volume` 与 `turnover` 列，否则抛出 `ValueError` |
+| 禁止覆盖 | 若输出列已存在，抛出 `ValueError` |
+
+#### 明确不做的事
+
+- 不填充或插补因子 NaN
+- 不修改原始行情列或上游因子列
+
 ### 输出约定
 
 ```
@@ -509,7 +573,7 @@ data/factor_pipeline/output/{symbol}_factor.parquet
 
 示例：`data/factor_pipeline/output/600000_factor.parquet`
 
-当前输出列 = 输入行情列 + 技术因子（`macd`、`macd_signal`、`macd_hist`、`rsi`）+ 价格因子（`return_1d`、`return_5d`、`return_10d`、`momentum_5d`、`momentum_10d`）+ `label`。
+当前输出列 = 输入行情列 + 技术因子（`macd`、`macd_signal`、`macd_hist`、`rsi`）+ 价格因子（`return_1d`、`return_5d`、`return_10d`、`momentum_5d`、`momentum_10d`）+ 成交量因子（`volume_change_1d`、`volume_change_5d`、`volume_ma_5`、`volume_ma_10`、`volume_ratio_5`、`turnover_ma_5`、`turnover_change_1d`）+ `label`。
 
 ### 完整工作流
 
@@ -559,19 +623,21 @@ print(result.output_path)
 ### 测试
 
 ```bash
-python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline_cleaner.py tests/test_factor_pipeline_technical.py tests/test_factor_pipeline_price.py -v
+python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline_cleaner.py tests/test_factor_pipeline_technical.py tests/test_factor_pipeline_price.py tests/test_factor_pipeline_volume.py -v
 ```
 
 - `test_factor_pipeline_loader.py` — 快照加载、路径校验、导出、端到端引擎
 - `test_factor_pipeline_cleaner.py` — 排序、去重、OHLCV 规则、NaN 跳过策略
 - `test_factor_pipeline_technical.py` — MACD/RSI 与 TA-Lib 对照、缺失列与覆盖保护
 - `test_factor_pipeline_price.py` — 收益率/动量公式、NaN 行为、缺失列与覆盖保护
+- `test_factor_pipeline_volume.py` — 成交量/换手率公式、NaN 行为、缺失列与覆盖保护
 
 ### 设计说明
 
 - 沿用原 `feature_pipeline` 的快照输入约定（基于 manifest 加载）。
 - **不**直接 import `market_data_pipeline`。
-- **不**实现成交量/波动率因子、缩放（RobustScaler）或机器学习逻辑。
+- **不**实现波动率因子、缩放（RobustScaler）或机器学习逻辑。
 - 技术因子（MACD、RSI）已在 `factors/technical.py` 中通过 TA-Lib 实现。
 - 价格因子（收益率、动量）已在 `factors/price.py` 中通过 pandas 向量化运算实现。
+- 成交量因子（变化、均线、比率、换手率）已在 `factors/volume.py` 中通过 pandas 向量化运算实现。
 - `dataset/splitter.py` 预留给后续训练/验证/测试切分，尚未接入 `engine.py`。
