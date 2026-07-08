@@ -2,12 +2,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from factor_pipeline.io.loader import REQUIRED_COLUMNS
 from factor_pipeline.labels.label_generator import (
     LABEL_COLUMNS,
     LabelGenerator,
     generate_labels,
 )
-from factor_pipeline.io.loader import REQUIRED_COLUMNS
 
 
 def _factor_frame(rows: int = 20) -> pd.DataFrame:

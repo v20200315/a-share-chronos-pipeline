@@ -88,7 +88,7 @@ class LabelGenerator:
         if self._horizon <= 0 or len(df) <= self._horizon:
             return df.iloc[0:0].copy()
 
-        return df.iloc[:-self._horizon].copy()
+        return df.iloc[: -self._horizon].copy()
 
 
 def generate_labels(df: pd.DataFrame) -> pd.DataFrame:
