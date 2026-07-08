@@ -8,7 +8,7 @@
 
 `factor_pipeline` is the second layer in the A-share quantitative research stack. It consumes daily market data published by `market_data_pipeline` and produces per-symbol factor datasets for downstream `alpha_model_pipeline` and `backtest_pipeline`.
 
-The pipeline is **wired end-to-end**. Input loading, snapshot validation, output-directory checks, the **data quality layer** (`cleaner/`), all **factor stages** (`technical.py`, `price.py`, `volume.py`, `volatility.py`), and **label generation** (`labels/label_generator.py` — forward return + binary label) are implemented. Dataset build/scale stages remain placeholders until real logic is added.
+The pipeline is **wired end-to-end**. Input loading, snapshot validation, output-directory checks, the **data quality layer** (`cleaner/`), all **factor stages**, **label generation**, and **dataset building** (`dataset/builder.py` — metadata + features + targets) are implemented. Scaler and splitter stages remain placeholders until real logic is added.
 
 ```
 market_data_pipeline
@@ -56,7 +56,7 @@ factor_pipeline/
 │
 ├── dataset/
 │   ├── __init__.py
-│   ├── builder.py           # Dataset assembly stage (placeholder)
+│   ├── builder.py           # Dataset assembly: metadata + features + targets (DatasetBuilder)
 │   ├── scaler.py            # Feature scaling stage (placeholder)
 │   └── splitter.py          # Train/validation/test split (placeholder, not wired yet)
 │
@@ -77,7 +77,8 @@ factor_pipeline/
 | `factors/volume.py` | Volume factors | `VolumeFactorGenerator`: volume change, MA, ratio, and turnover from `volume`/`turnover`; appends 7 columns (see below) |
 | `factors/volatility.py` | Volatility factors | `VolatilityFactorGenerator`: rolling return std, annualized historical vol, ATR from `high`/`low`/`close`; appends 4 columns (see below) |
 | `labels/label_generator.py` | Supervised labels | `LabelGenerator`: forward return and binary `label` from `close`; drops last `horizon` rows (default 5) |
-| `dataset/*.py` | Dataset prep | Pass-through placeholders; `splitter.py` not wired into `engine.py` |
+| `dataset/builder.py` | Research dataset | `DatasetBuilder`: validate and reorder metadata (`date`, `code`), 20 feature columns, and targets (`future_return`, `label`); excludes raw OHLCV |
+| `dataset/scaler.py`, `splitter.py` | Dataset prep | Pass-through placeholders; `splitter.py` not wired into `engine.py` |
 | `engine.py` | Pipeline orchestration | Loads snapshot, validates output dir, runs all active stages per symbol |
 | `pipeline.py` | Program entry point | Parses `--snapshot-dir` and `--output-dir`, runs `FactorEngine.run_all()` |
 
@@ -294,6 +295,37 @@ The last `horizon` rows have no observable future close. They are dropped before
 - Does **not** modify factor columns
 - Does **not** scale features or split train/validation/test
 
+### Dataset Builder (`dataset/builder.py`)
+
+After labels, `DatasetBuilder` assembles the research-ready export layout. It validates that all factor and target columns exist, then selects and reorders columns without modifying values or dropping rows.
+
+#### Output layout (24 columns)
+
+| Group | Columns | Count |
+|-------|---------|-------|
+| Metadata | `date`, `code` | 2 |
+| Features | all 20 factor columns (technical → price → volume → volatility) | 20 |
+| Targets | `future_return`, `label` | 2 |
+
+Raw OHLCV market columns (`open`, `high`, `low`, `close`, `volume`, etc.) are **not** included in the exported dataset.
+
+Column order: metadata → features → targets.
+
+#### Validation and errors
+
+| Check | Behavior |
+|-------|----------|
+| Feature columns | All 20 factor columns must exist; otherwise `ValueError` |
+| Target columns | `future_return` and `label` must exist; otherwise `ValueError` |
+
+`DatasetBuilder` exposes read-only `feature_columns` and `target_columns` properties.
+
+#### Explicit non-goals
+
+- Does **not** scale features
+- Does **not** split train/validation/test
+- Does **not** remove rows or change dtypes
+
 ### Output Contract
 
 ```
@@ -302,7 +334,7 @@ data/factor_pipeline/output/{symbol}_factor.parquet
 
 Example: `data/factor_pipeline/output/600000_factor.parquet`
 
-Current output columns = input market-data columns + all factor columns (20 total; see factor sections above) + `future_return` + `label`.
+Current output columns = metadata (`date`, `code`) + 20 feature columns + targets (`future_return`, `label`) = **24 columns** total.
 
 Output row count = cleaned market-data rows − `horizon` (default 5). Example: 1,211 daily bars → 1,206 exported rows per symbol.
 
@@ -331,7 +363,7 @@ Output row count = cleaned market-data rows − `horizon` (default 5). Example: 
     │                        │            labels/label_generator.py (generate_labels)
     │                        │                        │
     │                        │                        ▼
-    │                        │               dataset/builder.py → scaler.py
+    │                        │               dataset/builder.py (build_dataset) → scaler.py
     │                        │                        │
     └────────────────────────┴────────────────────────┘
                              │
@@ -389,7 +421,7 @@ print(result.output_path)
 ### Tests
 
 ```bash
-python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline_cleaner.py tests/test_factor_pipeline_technical.py tests/test_factor_pipeline_price.py tests/test_factor_pipeline_volume.py tests/test_factor_pipeline_volatility.py tests/test_factor_pipeline_label_generator.py -v
+python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline_cleaner.py tests/test_factor_pipeline_technical.py tests/test_factor_pipeline_price.py tests/test_factor_pipeline_volume.py tests/test_factor_pipeline_volatility.py tests/test_factor_pipeline_label_generator.py tests/test_factor_pipeline_dataset_builder.py -v
 ```
 
 - `test_factor_pipeline_loader.py` — snapshot loading, path validation, exporter, end-to-end engine
@@ -399,14 +431,15 @@ python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline
 - `test_factor_pipeline_volume.py` — volume/turnover formulas, NaN behavior, missing-column and overwrite guards
 - `test_factor_pipeline_volatility.py` — rolling std/hist vol formulas, ATR vs TA-Lib, NaN behavior, missing-column and overwrite guards
 - `test_factor_pipeline_label_generator.py` — forward return, binary labels, horizon/threshold config, tail-row removal
+- `test_factor_pipeline_dataset_builder.py` — metadata/feature/target preservation, column ordering, missing-column validation
 
 ### Design Notes
 
 - Replaces the older `feature_pipeline` input contract (snapshot-based loading).
 - Does **not** import `market_data_pipeline` directly.
 - Does **not** implement scaling (RobustScaler) or ML.
-- All four factor modules and `LabelGenerator` are implemented.
-- `dataset/builder.py`, `dataset/scaler.py`, and `dataset/splitter.py` remain placeholders; `splitter.py` is not wired into `engine.py`.
+- All four factor modules, `LabelGenerator`, and `DatasetBuilder` are implemented.
+- `dataset/scaler.py` and `dataset/splitter.py` remain placeholders; `splitter.py` is not wired into `engine.py`.
 
 ---
 
@@ -416,7 +449,7 @@ python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline
 
 `factor_pipeline` 是 A 股量化研究体系中的第二层。它读取 `market_data_pipeline` 发布的日频行情快照，为下游的 `alpha_model_pipeline` 和 `backtest_pipeline` 生成按股票代码拆分的因子数据集。
 
-流水线已**端到端打通**。输入加载、快照校验、输出目录校验、**数据质量层**（`cleaner/`）、全部**因子阶段**（`technical.py`、`price.py`、`volume.py`、`volatility.py`）以及**标签生成**（`labels/label_generator.py` — 远期收益 + 二分类标签）已实现。数据集构建与缩放阶段仍为占位，待后续接入真实逻辑。
+流水线已**端到端打通**。输入加载、快照校验、输出目录校验、**数据质量层**（`cleaner/`）、全部**因子阶段**、**标签生成**以及**数据集构建**（`dataset/builder.py` — 元数据 + 特征 + 目标）已实现。缩放与切分阶段仍为占位，待后续接入真实逻辑。
 
 ```
 market_data_pipeline
@@ -456,7 +489,11 @@ factor_pipeline/
 │
 ├── labels/
 │   └── label_generator.py   # 标签：远期收益 + 二分类 label（LabelGenerator）
-├── dataset/                 # 数据集阶段（占位，splitter 未接入 engine）
+│
+├── dataset/
+│   ├── builder.py           # 数据集组装：元数据 + 特征 + 目标（DatasetBuilder）
+│   ├── scaler.py            # 特征缩放（占位）
+│   └── splitter.py          # 训练/验证/测试切分（占位，未接入 engine）
 │
 └── （输出目录：data/factor_pipeline/output/）
     └── {symbol}_factor.parquet
@@ -475,7 +512,8 @@ factor_pipeline/
 | `factors/volume.py` | 成交量因子 | `VolumeFactorGenerator`：基于 `volume`/`turnover` 计算成交量变化、均线、比率与换手率；追加 7 列（见下文） |
 | `factors/volatility.py` | 波动率因子 | `VolatilityFactorGenerator`：基于 `high`/`low`/`close` 计算滚动收益标准差、年化历史波动率与 ATR；追加 4 列（见下文） |
 | `labels/label_generator.py` | 监督学习标签 | `LabelGenerator`：基于 `close` 计算远期收益与二分类 `label`；删除末尾 `horizon` 行（默认 5） |
-| `dataset/*.py` | 数据集准备 | 透传占位；`splitter.py` 未接入 `engine.py` |
+| `dataset/builder.py` | 研究数据集 | `DatasetBuilder`：校验并重排元数据（`date`、`code`）、20 个特征列与目标列（`future_return`、`label`）；不含原始 OHLCV |
+| `dataset/scaler.py`、`splitter.py` | 数据集准备 | 透传占位；`splitter.py` 未接入 `engine.py` |
 | `engine.py` | 流水线编排 | 加载快照、校验输出目录、按序执行各阶段 |
 | `pipeline.py` | 程序入口 | 解析 `--snapshot-dir` / `--output-dir`，运行 `FactorEngine.run_all()` |
 
@@ -690,6 +728,37 @@ date, code, open, high, low, close, volume, amount, amplitude, pct_change, chang
 - 不修改因子列
 - 不做特征缩放或训练/验证/测试切分
 
+### 数据集构建（`dataset/builder.py`）
+
+标签生成后，`DatasetBuilder` 组装可导出的研究数据集布局。校验全部因子列与目标列存在，再按固定顺序选取列，不修改数值、不删行。
+
+#### 输出布局（24 列）
+
+| 分组 | 列 | 数量 |
+|------|-----|------|
+| 元数据 | `date`、`code` | 2 |
+| 特征 | 全部 20 个因子列（技术 → 价格 → 成交量 → 波动率） | 20 |
+| 目标 | `future_return`、`label` | 2 |
+
+原始 OHLCV 行情列（`open`、`high`、`low`、`close`、`volume` 等）**不**写入导出数据集。
+
+列顺序：元数据 → 特征 → 目标。
+
+#### 校验与错误
+
+| 检查项 | 行为 |
+|--------|------|
+| 特征列 | 20 个因子列必须全部存在，否则抛出 `ValueError` |
+| 目标列 | `future_return` 与 `label` 必须存在，否则抛出 `ValueError` |
+
+`DatasetBuilder` 提供只读属性 `feature_columns` 与 `target_columns`。
+
+#### 明确不做的事
+
+- 不做特征缩放
+- 不做训练/验证/测试切分
+- 不删行、不改数据类型
+
 ### 输出约定
 
 ```
@@ -698,7 +767,7 @@ data/factor_pipeline/output/{symbol}_factor.parquet
 
 示例：`data/factor_pipeline/output/600000_factor.parquet`
 
-当前输出列 = 输入行情列 + 全部因子列（共 20 列，见上文各因子章节）+ `future_return` + `label`。
+当前输出列 = 元数据（`date`、`code`）+ 20 个特征列 + 目标（`future_return`、`label`）= 共 **24 列**。
 
 输出行数 = 清洗后行情行数 − `horizon`（默认 5）。示例：1,211 个交易日 → 每只股票导出 1,206 行。
 
@@ -750,7 +819,7 @@ print(result.output_path)
 ### 测试
 
 ```bash
-python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline_cleaner.py tests/test_factor_pipeline_technical.py tests/test_factor_pipeline_price.py tests/test_factor_pipeline_volume.py tests/test_factor_pipeline_volatility.py tests/test_factor_pipeline_label_generator.py -v
+python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline_cleaner.py tests/test_factor_pipeline_technical.py tests/test_factor_pipeline_price.py tests/test_factor_pipeline_volume.py tests/test_factor_pipeline_volatility.py tests/test_factor_pipeline_label_generator.py tests/test_factor_pipeline_dataset_builder.py -v
 ```
 
 - `test_factor_pipeline_loader.py` — 快照加载、路径校验、导出、端到端引擎
@@ -760,11 +829,12 @@ python -m pytest tests/test_factor_pipeline_loader.py tests/test_factor_pipeline
 - `test_factor_pipeline_volume.py` — 成交量/换手率公式、NaN 行为、缺失列与覆盖保护
 - `test_factor_pipeline_volatility.py` — 滚动标准差/历史波动率公式、ATR 与 TA-Lib 对照、NaN 行为、缺失列与覆盖保护
 - `test_factor_pipeline_label_generator.py` — 远期收益、二分类标签、horizon/threshold 配置、末尾行删除
+- `test_factor_pipeline_dataset_builder.py` — 元数据/特征/目标保留、列顺序、缺失列校验
 
 ### 设计说明
 
 - 沿用原 `feature_pipeline` 的快照输入约定（基于 manifest 加载）。
 - **不**直接 import `market_data_pipeline`。
 - **不**实现缩放（RobustScaler）或机器学习逻辑。
-- 四个因子模块与 `LabelGenerator` 均已实现。
-- `dataset/builder.py`、`dataset/scaler.py` 与 `dataset/splitter.py` 仍为占位；`splitter.py` 尚未接入 `engine.py`。
+- 四个因子模块、`LabelGenerator` 与 `DatasetBuilder` 均已实现。
+- `dataset/scaler.py` 与 `dataset/splitter.py` 仍为占位；`splitter.py` 尚未接入 `engine.py`。
